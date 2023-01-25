@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "Compose-Components"
-include ':app'
-include ':android'
+include(":app")
+include(":android")

@@ -1,5 +1,6 @@
 package dev.flammky.compose_components.android.reorderable.lazylist
 
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -15,10 +16,9 @@ fun ReorderableLazyColumn(
     val applier: ReorderableLazyListApplier = rememberReorderableLazyListApplier(state)
 
     LazyColumn(
-        modifier = modifier,
+        modifier = modifier.then(applier.pointerInputFilterModifier),
         state = state.lazyListState,
-        content = {
-            with(applier) { apply(content) }
-        }
-    )
+    ) scope@ {
+        applier.apply(this@scope, content)
+    }
 }

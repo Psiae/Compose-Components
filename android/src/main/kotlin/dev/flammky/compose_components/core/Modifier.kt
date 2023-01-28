@@ -5,4 +5,4 @@ import androidx.compose.ui.Modifier
 internal inline fun Modifier.combineIf(
     predicate: Boolean,
     combine: Modifier.() -> Modifier
-): Modifier = if (predicate) combine() else this
+): Modifier = if (predicate) this.combine() else this

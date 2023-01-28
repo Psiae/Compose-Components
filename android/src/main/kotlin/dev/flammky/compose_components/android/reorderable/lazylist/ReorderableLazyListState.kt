@@ -3,22 +3,34 @@ package dev.flammky.compose_components.android.reorderable.lazylist
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.util.fastFirstOrNull
+import androidx.compose.ui.util.fastForEach
 import dev.flammky.compose_components.android.reorderable.DragStart
+import dev.flammky.compose_components.android.reorderable.ItemPosition
 import dev.flammky.compose_components.android.reorderable.ReorderableScrollableState
 import dev.flammky.compose_components.core.SnapshotRead
 import kotlinx.coroutines.channels.Channel
 
 class ReorderableLazyListState internal constructor(
-    val lazyListState: LazyListState
+    val lazyListState: LazyListState,
+    val canDragOver: (from: ItemPosition, to: ItemPosition) -> Boolean
 ) : ReorderableScrollableState<LazyListItemInfo>() {
 
-    private val selectedItem by mutableStateOf<LazyListItemInfo?>(null)
+    private var _selectedItem by mutableStateOf<LazyListItemInfo?>(null)
+    private var _draggingDelta by mutableStateOf<Offset>(Offset.Zero)
 
-    override val childDragChannel: Channel<DragStart> = Channel()
+    private val targets = mutableListOf<LazyListItemInfo>()
+    private val distances = mutableListOf<Int>()
 
+    private val _draggingItemLayoutInfo: LazyListItemInfo?
+        get() = visibleItemsInfo.fastFirstOrNull { visibleItem ->
+            visibleItem.itemIndex == draggingItemIndex
+        }
+
+    internal override val childDragStartChannel: Channel<DragStart> = Channel()
+    internal override val scrollChannel: Channel<Float> = Channel()
 
     override val isVerticalScroll: Boolean
         @SnapshotRead
@@ -38,7 +50,19 @@ class ReorderableLazyListState internal constructor(
 
     override val draggingItemKey: Any?
         @SnapshotRead
-        get() = selectedItem?.itemKey
+        get() = _selectedItem?.itemKey
+
+    override val firstVisibleItemIndex: Int
+        get() = lazyListState.firstVisibleItemIndex
+
+    override val firstVisibleItemScrollOffset: Int
+        get() = lazyListState.firstVisibleItemScrollOffset
+
+    override val viewportStartOffset: Int
+        get() = lazyListState.layoutInfo.viewportStartOffset
+
+    override val viewportEndOffset: Int
+        get() = lazyListState.layoutInfo.viewportEndOffset
 
     override val LazyListItemInfo.itemIndex: Int
         get() = index
@@ -46,7 +70,7 @@ class ReorderableLazyListState internal constructor(
     override val LazyListItemInfo.itemKey: Any
         get() = key
 
-    override val LazyListItemInfo.startRelativePos: Int
+    override val LazyListItemInfo.leftPos: Int
         @SnapshotRead
         get() = when {
             isVerticalScroll -> 0
@@ -56,7 +80,7 @@ class ReorderableLazyListState internal constructor(
             else -> offset
         }
 
-    override val LazyListItemInfo.endRelativePos: Int
+    override val LazyListItemInfo.rightPos: Int
         @SnapshotRead
         get() = when {
             isVerticalScroll -> 0
@@ -66,7 +90,7 @@ class ReorderableLazyListState internal constructor(
             else -> offset + size
         }
 
-    override val LazyListItemInfo.topRelativePos: Int
+    override val LazyListItemInfo.topPos: Int
         @SnapshotRead
         get() = when {
             !isVerticalScroll -> 0
@@ -76,7 +100,7 @@ class ReorderableLazyListState internal constructor(
             else -> offset
         }
 
-    override val LazyListItemInfo.bottomRelativePos: Int
+    override val LazyListItemInfo.bottomPos: Int
         @SnapshotRead
         get() = when {
             !isVerticalScroll -> 0
@@ -85,4 +109,63 @@ class ReorderableLazyListState internal constructor(
             }
             else -> offset + size
         }
+
+    override val LazyListItemInfo.height: Int
+        get() = if (isVerticalScroll) {
+            size
+        } else {
+            0
+        }
+
+    override val LazyListItemInfo.width: Int
+        get() = if (isVerticalScroll) {
+            size
+        } else {
+            0
+        }
+
+    override fun onStartDrag(startX: Int, startY: Int): Boolean {
+        val x: Int
+        val y: Int
+        if (isVerticalScroll) {
+            x = startX
+            y = viewportStartOffset + startY
+        } else {
+            x = viewportStartOffset + startX
+            y = startY
+        }
+        return visibleItemsInfo
+            .fastFirstOrNull {
+                x in it.leftPos..it.rightPos && y in it.topPos..it.bottomPos
+            }
+            ?.also { itemInfo ->
+                _selectedItem = itemInfo
+                draggingItemIndex = itemInfo.itemIndex
+            } != null
+    }
+
+    override fun onDrag(dragX: Int, dragY: Int) {
+        TODO("Not yet implemented")
+    }
+
+    override fun onDragEnd() {
+        TODO("Not yet implemented")
+    }
+
+    override fun onDragCancelled() {
+        TODO("Not yet implemented")
+    }
+}
+
+@Composable
+fun rememberReorderableLazyListState(
+    lazyListState: LazyListState,
+    canDragOver: (from: ItemPosition, to: ItemPosition) -> Boolean,
+): ReorderableLazyListState {
+    return remember(lazyListState) {
+        ReorderableLazyListState(
+            lazyListState = lazyListState,
+            canDragOver = canDragOver
+        )
+    }
 }

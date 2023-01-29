@@ -49,8 +49,8 @@ internal class RealReorderableLazyListApplier(
                         awaitPointerEventScope {
                             drag(dragStart.id) { change ->
                                 state.onDrag(change.position.x.toInt(), change.position.y.toInt())
-                            }.let { complete ->
-                                if (complete) {
+                            }.let { completeNormally ->
+                                if (completeNormally) {
                                     state.onDragEnd()
                                 } else {
                                     state.onDragCancelled()

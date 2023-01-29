@@ -7,7 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dev.flammky.compose_components.presentation.MainActivity
-import dev.flammky.compose_components.presentation.ordering.Ordering
+import dev.flammky.compose_components.presentation.reordering.Ordering
 
 @Composable
 fun MainActivity.RootNavigation() {

@@ -6,7 +6,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.util.fastFirstOrNull
-import androidx.compose.ui.util.fastForEach
 import dev.flammky.compose_components.android.reorderable.DragStart
 import dev.flammky.compose_components.android.reorderable.ItemPosition
 import dev.flammky.compose_components.android.reorderable.ReorderableScrollableState
@@ -160,12 +159,15 @@ class ReorderableLazyListState internal constructor(
 @Composable
 fun rememberReorderableLazyListState(
     lazyListState: LazyListState,
-    canDragOver: (from: ItemPosition, to: ItemPosition) -> Boolean,
+    onDragStart: (/*snapshot: Any?,*/ item: ItemPosition) -> Unit,
+    canDragOverItem: (/*snapshot: Any?,*/ item: ItemPosition, dragging: ItemPosition) -> Boolean,
+    onDragEnd: (/*snapshot: Any?,*/ from: ItemPosition, to: ItemPosition) -> Unit,
+    onMove: (/*snapshot: Any?,*/ from: ItemPosition, to: ItemPosition) -> Unit,
 ): ReorderableLazyListState {
     return remember(lazyListState) {
         ReorderableLazyListState(
             lazyListState = lazyListState,
-            canDragOver = canDragOver
+            canDragOver = canDragOverItem
         )
     }
 }

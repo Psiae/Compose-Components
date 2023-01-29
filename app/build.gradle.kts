@@ -73,23 +73,6 @@ dependencies {
     dependencies  {
         val v = "0.28.0"
 
-        // Drawable
-        implementation("com.google.accompanist:accompanist-drawablepainter:$v")
-
-        // FlowLayout
-        implementation("com.google.accompanist:accompanist-flowlayout:$v")
-
-        // Navigation
-        implementation("com.google.accompanist:accompanist-navigation-animation:$v")
-        implementation("com.google.accompanist:accompanist-navigation-material:$v")
-
-        // Pager
-        implementation("com.google.accompanist:accompanist-pager:$v")
-        implementation("com.google.accompanist:accompanist-pager-indicators:$v")
-
-        // Permissions
-        implementation("com.google.accompanist:accompanist-permissions:$v")
-
         // PlaceHolder
         implementation("com.google.accompanist:accompanist-placeholder:$v")
 
@@ -98,6 +81,12 @@ dependencies {
 
         // SysUI
         implementation("com.google.accompanist:accompanist-systemuicontroller:$v")
+    }
+
+    dependencies {
+        // Collections.Immutable
+        val vCollection_Immutable = "0.3.5"
+        implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:$vCollection_Immutable")
     }
 
     implementation("com.google.android.material:material:1.7.0")

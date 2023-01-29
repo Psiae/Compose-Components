@@ -26,3 +26,10 @@ annotation class SnapshotRead()
 @Retention(AnnotationRetention.SOURCE)
 annotation class SnapshotReader()
 
+@Target(
+    AnnotationTarget.FUNCTION,
+    AnnotationTarget.PROPERTY_GETTER,
+    AnnotationTarget.PROPERTY_SETTER
+)
+@Retention(AnnotationRetention.SOURCE)
+annotation class SnapshotWriter()

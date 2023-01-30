@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <application
+        android:name="dev.flammky.compose_components.core.CoreApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -13,16 +14,17 @@
         android:theme="@style/Theme.ComposeComponents"
         tools:targetApi="31">
 
-    <!-- Other orientation will be supported in the future -->
-    <activity
-        android:name="dev.flammky.compose_components.presentation.MainActivity"
-        android:exported="true"
-        android:launchMode="singleTask">
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent-filter>
-    </activity>
+        <!-- Other orientation will be supported in the future -->
+        <activity
+            android:name="dev.flammky.compose_components.presentation.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
     </application>
 
 </manifest>

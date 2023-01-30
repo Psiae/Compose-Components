@@ -9,8 +9,8 @@ data class TaskList(
     val snapshotID: String,
     val listSnapshotID: String,
     val list: ImmutableList<Item>,
+    val currentTask: Item?,
     val currentTaskIndex: Int,
-    val currentTaskId: Int
 ) {
 
     data class Item(
@@ -24,7 +24,7 @@ data class TaskList(
             "",
             "",
             persistentListOf(),
-            -1,
+            null,
             -1
         )
     }

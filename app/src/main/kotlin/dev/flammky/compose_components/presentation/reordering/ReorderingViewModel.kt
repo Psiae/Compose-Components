@@ -18,16 +18,16 @@ internal class ReorderingViewModel : ViewModel() {
     private var _taskJob: Job? = null
 
     private val _taskListState = mutableStateOf<TaskList>(value = TaskList.UNSET)
-    private val _overrideTaskListState = mutableStateOf<ModifiedTaskList?>(value = null)
+    private val _overrideTaskListState = mutableStateOf<ReorderedTaskList?>(value = null)
 
-    val taskListState = derivedStateOf {
+    val actualTaskListState = derivedStateOf {
         _taskListState.value
     }
     val overrideTaskListState = derivedStateOf {
-        _overrideTaskListState.value?.current
+        _overrideTaskListState.value?.modified
     }
     val maskedTaskListState: State<TaskList> = derivedStateOf {
-        overrideTaskListState.value ?: taskListState.value
+        overrideTaskListState.value ?: actualTaskListState.value
     }
 
     fun observeTask(): Job = viewModelScope.launch {
@@ -48,6 +48,32 @@ internal class ReorderingViewModel : ViewModel() {
         }
     }
 
+    fun startMoveTask(
+        snapshotListID: String,
+        from: Int
+    ) {
+        viewModelScope.launch {
+
+            // should we assert that `overrideTaskListState` should be null ?
+
+            val base = _taskListState.value
+
+            if (base.listSnapshotID != snapshotListID) {
+                return@launch
+            }
+
+            if (from !in base.list.indices) {
+                return@launch
+            }
+
+            _overrideTaskListState.value = ReorderedTaskList(
+                base = base,
+                modified = base.copy(),
+                node = from to from
+            )
+        }
+    }
+
     fun moveTask(
         snapshotListID: String,
         from: Int,
@@ -55,39 +81,67 @@ internal class ReorderingViewModel : ViewModel() {
     ) {
         viewModelScope.launch {
 
-            if (from == to || _taskListState.value.listSnapshotID != snapshotListID) {
+            val reordered = _overrideTaskListState.value
+                ?: return@launch
+
+            val reorderedMod = reordered.modified
+
+            if (from == to || reordered.modified.listSnapshotID != snapshotListID) {
                 return@launch
             }
 
-            // modification is in the same thread anyways
-
-            val base = _taskListState.value
-
-            if (from !in base.list.indices || to !in base.list.indices) {
+            if (from !in reorderedMod.list.indices || to !in reorderedMod.list.indices) {
                 return@launch
             }
 
-            _overrideTaskListState.value = ModifiedTaskList(
-                base = base,
-                current = base.copy(
-                    list = base.list
-                        .toMutableList()
-                        .apply {
-                            add(to, removeAt(from))
-                        }
-                        .toPersistentList()
-                )
+            val mod = reorderedMod.copy(
+                list = reorderedMod.list
+                    .toMutableList()
+                    .apply {
+                        add(to, removeAt(from))
+                    }
+                    .toPersistentList()
+            )
+
+            _overrideTaskListState.value = ReorderedTaskList(
+                base = reordered.base,
+                modified = mod,
+                node = (reordered.node.first) to to
             )
         }
     }
 
+    fun cancelMoveTask() {
+        viewModelScope.launch {
+            _overrideTaskListState.value = null
+        }
+    }
+
+    fun commitMoveTask() {
+        viewModelScope.launch {
+            val mod = _overrideTaskListState.value
+                ?: return@launch
+
+            if (mod.modified.listSnapshotID != actualTaskListState.value.listSnapshotID) {
+                // the List snapshot was changed
+                _overrideTaskListState.value = null
+                return@launch
+            }
+
+            _repo.moveTask(mod.modified.listSnapshotID, mod.node.first, mod.node.second)
+                .await()
+                .notifyTask?.join()
+
+            if (_overrideTaskListState.value === mod) {
+                _overrideTaskListState.value = null
+            }
+        }
+    }
+
     @Immutable
-    private data class ModifiedTaskList(
+    private data class ReorderedTaskList(
         val base: TaskList,
-        val current: TaskList
+        val modified: TaskList,
+        val node: Pair<Int, Int>
     )
-}
-
-internal class ReorderingStateViewModel() : ViewModel() {
-
 }

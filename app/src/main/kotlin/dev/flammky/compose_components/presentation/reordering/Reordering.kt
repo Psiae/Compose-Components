@@ -18,9 +18,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.flammky.compose_components.android.R
 import dev.flammky.compose_components.android.reorderable.ItemPosition
-import dev.flammky.compose_components.android.reorderable.lazylist.ReorderableLazyColumn
-import dev.flammky.compose_components.android.reorderable.lazylist.ReorderableLazyItemScope
-import dev.flammky.compose_components.android.reorderable.lazylist.rememberReorderableLazyListState
+import dev.flammky.compose_components.android.reorderable.ReorderableLazyColumn
+import dev.flammky.compose_components.android.reorderable.ReorderableLazyItemScope
+import dev.flammky.compose_components.android.reorderable.rememberReorderableLazyListState
 import dev.flammky.compose_components.core.NoInline
 import dev.flammky.compose_components.presentation.theme.Theme
 import dev.flammky.compose_components.presentation.theme.backgroundContentColorAsState
@@ -77,17 +77,18 @@ private fun OrderingTestUsage(
                     val fromKey = from.key
                     val toKey = to.key
                     if (fromKey !is QueueItemPositionKey || toKey !is QueueItemPositionKey) {
-                        return@move
+                        return@move false
                     }
                     viewModel.moveTask(
                         qId = fromKey.qID
                             .takeIf { it == toKey.qID }
-                            ?: return@move,
+                            ?: return@move false,
                         from = from.index,
                         expectFromID = fromKey.idInQueue,
                         to = to.index,
                         expectToID = toKey.idInQueue
                     )
+                    true
                 }
             ),
             contentPadding = PaddingValues(

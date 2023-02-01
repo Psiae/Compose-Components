@@ -1,6 +1,5 @@
 package dev.flammky.compose_components.android.reorderable
 
-import dev.flammky.compose_components.android.reorderable.lazylist.ReorderableLazyListApplier
 import dev.flammky.compose_components.core.SnapshotRead
 import kotlinx.coroutines.channels.Channel
 

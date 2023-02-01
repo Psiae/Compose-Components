@@ -1,4 +1,4 @@
-package dev.flammky.compose_components.android.reorderable.lazylist
+package dev.flammky.compose_components.android.reorderable
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn

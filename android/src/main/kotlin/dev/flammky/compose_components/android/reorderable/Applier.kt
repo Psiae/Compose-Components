@@ -1,4 +1,4 @@
-package dev.flammky.compose_components.android.reorderable.lazylist
+package dev.flammky.compose_components.android.reorderable
 
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.forEachGesture
@@ -9,13 +9,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.util.fastFirstOrNull
 import dev.flammky.compose_components.core.SnapshotReader
-import kotlin.math.roundToInt
 
 interface ReorderableLazyListApplier {
 
     val pointerInputFilterModifier: Modifier
     fun apply(
-        scope: LazyListScope,
+        lazyListScope: LazyListScope,
         content: @SnapshotReader ReorderableLazyListScope.() -> Unit
     )
 }
@@ -63,7 +62,7 @@ internal class RealReorderableLazyListApplier(
         }
     }
 
-    override fun apply(scope: LazyListScope, content: ReorderableLazyListScope.() -> Unit) {
-        TODO("Not yet implemented")
+    override fun apply(lazyListScope: LazyListScope, content: ReorderableLazyListScope.() -> Unit) {
+        lazyListScope.item {  }
     }
 }

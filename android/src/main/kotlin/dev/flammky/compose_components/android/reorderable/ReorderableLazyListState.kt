@@ -1,4 +1,4 @@
-package dev.flammky.compose_components.android.reorderable.lazylist
+package dev.flammky.compose_components.android.reorderable
 
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.lazy.LazyListItemInfo
@@ -6,15 +6,15 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.util.fastFirstOrNull
-import dev.flammky.compose_components.android.reorderable.DragStart
-import dev.flammky.compose_components.android.reorderable.ItemPosition
-import dev.flammky.compose_components.android.reorderable.ReorderableScrollableState
 import dev.flammky.compose_components.core.SnapshotRead
 import kotlinx.coroutines.channels.Channel
 
 class ReorderableLazyListState internal constructor(
     val lazyListState: LazyListState,
-    val canDragOver: (from: ItemPosition, to: ItemPosition) -> Boolean
+    val onDragStart: (item: ItemPosition) -> Unit,
+    val onDragEnd: (cancelled: Boolean, from: ItemPosition, to: ItemPosition) -> Unit,
+    val canDragOver: (from: ItemPosition, to: ItemPosition) -> Boolean,
+    val onMove: (from: ItemPosition, to: ItemPosition) -> Boolean,
 ) : ReorderableScrollableState<LazyListItemInfo>() {
 
     private var _selectedItem by mutableStateOf<LazyListItemInfo?>(null)
@@ -161,14 +161,17 @@ class ReorderableLazyListState internal constructor(
 fun rememberReorderableLazyListState(
     lazyListState: LazyListState,
     onDragStart: (item: ItemPosition) -> Unit,
-    canDragOverItem: (item: ItemPosition, dragging: ItemPosition) -> Boolean,
     onDragEnd: (cancelled: Boolean, from: ItemPosition, to: ItemPosition) -> Unit,
-    onMove: (from: ItemPosition, to: ItemPosition) -> Unit,
+    canDragOverItem: (item: ItemPosition, dragging: ItemPosition) -> Boolean,
+    onMove: (from: ItemPosition, to: ItemPosition) -> Boolean,
 ): ReorderableLazyListState {
     return remember(lazyListState) {
         ReorderableLazyListState(
             lazyListState = lazyListState,
-            canDragOver = canDragOverItem
+            onDragStart = onDragStart,
+            onDragEnd = onDragEnd,
+            canDragOver = canDragOverItem,
+            onMove = onMove
         )
     }
 }

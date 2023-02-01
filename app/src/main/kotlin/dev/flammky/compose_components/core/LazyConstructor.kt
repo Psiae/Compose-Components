@@ -9,44 +9,32 @@ import kotlin.reflect.KProperty
 class LazyConstructor<T> @JvmOverloads constructor(lock: Any = Any()) {
 
     /**
-     * Placeholder Object
+     * Placeholder Object, generic is nullable
      */
     private object UNSET
 
     /**
      * The Lock
      */
-    private val localLock: Any = lock
+    private val _lock: Any = lock
 
     /**
      * The value holder. [UNSET] if not set
-     *
-     * @throws IllegalStateException if trying to set value without lock
-     * @throws IllegalStateException if value was already set
      */
-    private var localValue: Any? = UNSET
-        set(value) {
-            check(Thread.holdsLock(localLock)) {
-                "Trying to set field without lock"
-            }
-            check(field === UNSET) {
-                "localValue was $field when trying to set $value"
-            }
-            field = value
-        }
+    private var _value: Any? = UNSET
 
     @Suppress("UNCHECKED_CAST")
     private val castValue: T
         get() = try {
-            localValue as T
+            _value as T
         } catch (cce: ClassCastException) {
-            error("localValue=$localValue was UNSET")
+            error("localValue=$_value was UNSET")
         }
 
     /**
      * The value.
      *
-     * @throws IllegalStateException if [localValue] is [UNSET]
+     * @throws IllegalStateException if [_value] is [UNSET]
      */
     val value: T
         get() {
@@ -59,30 +47,39 @@ class LazyConstructor<T> @JvmOverloads constructor(lock: Any = Any()) {
         }
 
     /**
-     *  Whether [localValue] is already initialized
+     *  Whether [_value] is already initialized
      *  @see isConstructedAtomic
      */
-    fun isConstructed() = localValue !== UNSET
+    fun isConstructed() = _value !== UNSET
 
     /**
-     * Whether [localValue] is already initialized, atomically
+     * Whether [_value] is already initialized, atomically
      * @see isConstructed
      */
     fun isConstructedAtomic() = sync { isConstructed() }
 
-    /** Construct the delegated value, if not already constructed */
+    /**
+     * Construct the delegated value.
+     *
+     * if [_value] is not [UNSET] then it will be returned, ignoring [lazyValue]
+     */
     fun construct(lazyValue: () -> T): T {
         if (isConstructed()) {
             return castValue
         }
         return sync {
             if (!isConstructed()) {
-                localValue = lazyValue()
+                _value = lazyValue()
             }
             castValue
         }
     }
 
+    /**
+     * Construct the delegated value.
+     *
+     * if [_value] is not [UNSET] then [lazyThrow] will be invoked, which return [Nothing]
+     */
     fun constructOrThrow(
         lazyValue: () -> T,
         lazyThrow: () -> Nothing
@@ -91,17 +88,16 @@ class LazyConstructor<T> @JvmOverloads constructor(lock: Any = Any()) {
             lazyThrow()
         }
         return sync {
-            if (!isConstructed()) {
-                localValue = lazyValue()
-            } else {
+            if (isConstructed()) {
                 lazyThrow()
             }
+            _value = lazyValue()
             castValue
         }
     }
 
     private fun sync(): Unit = sync { }
-    private fun <T> sync(block: () -> T): T = synchronized(localLock) { block() }
+    private fun <T> sync(block: () -> T): T = synchronized(_lock) { block() }
 
     companion object {
         fun <T> LazyConstructor<T>.valueOrNull(): T? {

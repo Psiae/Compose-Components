@@ -2,13 +2,13 @@ package dev.flammky.compose_components.presentation.reordering
 
 import android.os.Parcel
 import android.os.Parcelable
-import androidx.compose.foundation.ExperimentalFoundationApi
+import android.util.Log
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -21,7 +21,6 @@ import dev.flammky.compose_components.android.reorderable.ItemPosition
 import dev.flammky.compose_components.android.reorderable.lazylist.ReorderableLazyColumn
 import dev.flammky.compose_components.android.reorderable.lazylist.ReorderableLazyItemScope
 import dev.flammky.compose_components.android.reorderable.lazylist.rememberReorderableLazyListState
-import dev.flammky.compose_components.android.reorderable.leech.*
 import dev.flammky.compose_components.core.NoInline
 import dev.flammky.compose_components.presentation.theme.Theme
 import dev.flammky.compose_components.presentation.theme.backgroundContentColorAsState
@@ -30,7 +29,6 @@ import dev.flammky.compose_components.presentation.theme.backgroundContentColorA
 internal fun Ordering(
     viewModel: ReorderingViewModel = viewModel()
 ) {
-
 }
 
 @Composable
@@ -46,14 +44,14 @@ private fun OrderingTestUsage(
     }
 
     NoInline {
-        val currentList = viewModel.actualTaskListState
+        val currentList = viewModel.actualQueueState
 
-        if (currentList.value.currentTaskIndex < 0) {
+        if (currentList.value.currentTrackItemIndex < 0) {
             return@NoInline
         }
 
         val lazyListState = rememberLazyListState(
-            initialFirstVisibleItemIndex = currentList.value.currentTaskIndex,
+            initialFirstVisibleItemIndex = currentList.value.currentTrackItemIndex,
             initialFirstVisibleItemScrollOffset = statusBarHeight.value.toInt()
         )
 
@@ -61,30 +59,34 @@ private fun OrderingTestUsage(
             state = rememberReorderableLazyListState(
                 lazyListState = lazyListState,
                 onDragStart = start@ { item: ItemPosition ->
-                    val id = (item.key as? TaskItemPositionKey)?.listSnapshotID
+                    val key = item.key as? QueueItemPositionKey
                         ?: return@start
-                    viewModel.startMoveTask(id, item.index)
+                    viewModel.startMoveTrack(key.qID, item.index, key.idInQueue)
                 },
                 onDragEnd = { cancelled, _, _ ->
                     if (!cancelled) {
-                        viewModel.commitMoveTask()
+                        viewModel.commitMoveQueueItem()
                     } else {
                         viewModel.cancelMoveTask()
                     }
                 },
                 canDragOverItem = { _, _ -> true },
                 onMove = move@ { from, to ->
+                    Log.d("Reorderable", "onMove($from, $to)")
                     // allow smart-cast
                     val fromKey = from.key
                     val toKey = to.key
-                    if (fromKey !is TaskItemPositionKey || toKey !is TaskItemPositionKey) {
-                        // should stress-test
+                    if (fromKey !is QueueItemPositionKey || toKey !is QueueItemPositionKey) {
                         return@move
                     }
                     viewModel.moveTask(
-                        snapshotListID = fromKey.listSnapshotID,
+                        qId = fromKey.qID
+                            .takeIf { it == toKey.qID }
+                            ?: return@move,
                         from = from.index,
-                        to = to.index
+                        expectFromID = fromKey.idInQueue,
+                        to = to.index,
+                        expectToID = toKey.idInQueue
                     )
                 }
             ),
@@ -93,69 +95,25 @@ private fun OrderingTestUsage(
                 bottom = navigationBarHeight
             ),
         ) scope@ {
-            val maskedList = viewModel.maskedTaskListState.value
+            val maskedList = viewModel.maskedQueueState.value
             items(
-                count = maskedList.list.size,
-                key = { i -> maskedList.list[i].id }
+                count = maskedList.tracks.size,
+                key = { i -> QueueItemPositionKey(maskedList.queueID, maskedList.tracks[i].itemID) }
             ) { i ->
-                TestTaskItemLayout(maskedList.list[i])
+                TestTaskItemLayout(maskedList.tracks[i])
             }
         }
     }
 
     DisposableEffect(key1 = viewModel, effect = {
-        val obs = viewModel.observeTask()
+        val obs = viewModel.observeQueue()
         onDispose { obs.cancel() }
     })
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun LazyItemScope.LeechTestTaskItemLayout(
-    state: ReorderableState<*>,
-    item: TaskList.Item,
-    index: Int
-) {
-    ReorderableItem(reorderableState = state, null, index = index) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(60.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(24.dp)
-                    .detectReorder(state),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    modifier = Modifier.size(24.dp),
-                    painter = painterResource(id = R.drawable.drag_handle_fill0_wght400_grad0_opsz48),
-                    contentDescription = "drag_handle",
-                    tint = Theme.backgroundContentColorAsState().value
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    text = item.id,
-                    color = Theme.backgroundContentColorAsState().value
-                )
-            }
-        }
-    }
-}
-
 @Composable
 private fun ReorderableLazyItemScope.TestTaskItemLayout(
-    item: TaskList.Item
+    item: TrackQueueItem
 ) {
     Row(
         modifier = Modifier
@@ -186,44 +144,41 @@ private fun ReorderableLazyItemScope.TestTaskItemLayout(
             Text(
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
-                text = item.id,
+                text = item.itemID.toString(),
                 color = Theme.backgroundContentColorAsState().value
             )
         }
     }
 }
 
-internal data class TaskItemPositionKey(
-    val snapshotID: String,
-    val listSnapshotID: String,
-    val id: String
+internal data class QueueItemPositionKey(
+    val qID: String,
+    val idInQueue: Int,
 ) : Parcelable {
     override fun describeContents(): Int {
         return 0
     }
 
     override fun writeToParcel(dest: Parcel, flags: Int) {
-        dest.writeString(snapshotID)
-        dest.writeString(listSnapshotID)
-        dest.writeString(id)
+        dest.writeString(qID)
+        dest.writeInt(idInQueue)
     }
 
     companion object {
 
         @JvmField
         @Suppress("unused")
-        val CREATOR = object : Parcelable.Creator<TaskItemPositionKey> {
+        val CREATOR = object : Parcelable.Creator<QueueItemPositionKey> {
 
-            override fun createFromParcel(source: Parcel): TaskItemPositionKey {
-                return TaskItemPositionKey(
+            override fun createFromParcel(source: Parcel): QueueItemPositionKey {
+                return QueueItemPositionKey(
                     source.readString()!!,
-                    source.readString()!!,
-                    source.readString()!!
+                    source.readInt(),
                 )
             }
 
-            override fun newArray(size: Int): Array<TaskItemPositionKey?> {
-                return arrayOfNulls<TaskItemPositionKey?>(size)
+            override fun newArray(size: Int): Array<QueueItemPositionKey?> {
+                return arrayOfNulls(size)
             }
         }
     }

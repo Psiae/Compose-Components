@@ -1,7 +1,6 @@
 package dev.flammky.compose_components.presentation.reordering
 
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
@@ -12,136 +11,135 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 internal class ReorderingViewModel : ViewModel() {
-    private val _repo = TaskRepository.get()
+    private val _controller = PlaybackController.get()
 
-    private var _taskJobCount = 0
-    private var _taskJob: Job? = null
+    private var _observeJobCount = 0
+    private var _observeJob: Job? = null
 
-    private val _taskListState = mutableStateOf<TaskList>(value = TaskList.UNSET)
-    private val _overrideTaskListState = mutableStateOf<ReorderedTaskList?>(value = null)
+    private val _queueState = mutableStateOf<TrackQueue>(value = TrackQueue.UNSET)
+    private val _reorderedQueueState = mutableStateOf<ReorderedQueue?>(value = null)
 
-    val actualTaskListState = derivedStateOf {
-        _taskListState.value
+    val actualQueueState = derivedStateOf {
+        _queueState.value
     }
-    val overrideTaskListState = derivedStateOf {
-        _overrideTaskListState.value?.modified
+    val reorderedQueueState = derivedStateOf {
+        _reorderedQueueState.value?.modified
     }
-    val maskedTaskListState: State<TaskList> = derivedStateOf {
-        overrideTaskListState.value ?: actualTaskListState.value
+    val maskedQueueState = derivedStateOf {
+        reorderedQueueState.value ?: actualQueueState.value
     }
 
-    fun observeTask(): Job = viewModelScope.launch {
-        if (_taskJob == null) {
-            _taskJob = viewModelScope.launch {
-                _repo.observeTaskList()
+    fun observeQueue(): Job = viewModelScope.launch {
+        if (_observeJob == null) {
+            _observeJob = viewModelScope.launch {
+                _controller.observeTrackQueue()
                     .collect {
-                        _taskListState.value = it
+                        _queueState.value = it
                     }
             }
         }
         runCatching {
-            _taskJobCount++
-            _taskJob!!.join()
+            _observeJobCount++
+            _observeJob!!.join()
         }.onFailure { ex ->
             if (ex !is CancellationException) throw ex
-            if (--_taskJobCount == 0) _taskJob!!.cancel()
+            if (--_observeJobCount == 0) _observeJob!!.cancel()
         }
     }
 
-    fun startMoveTask(
-        snapshotListID: String,
-        from: Int
+    fun startMoveTrack(
+        qId: String,
+        from: Int,
+        expectFromID: Int
     ) {
-        viewModelScope.launch {
+       viewModelScope.launch {
+           // should we assert that `overrideTaskListState` should be null ?
 
-            // should we assert that `overrideTaskListState` should be null ?
+           val base = _queueState.value
 
-            val base = _taskListState.value
+           if (base.queueID != qId || base.tracks.getOrNull(from)?.itemID != expectFromID) {
+               return@launch
+           }
 
-            if (base.listSnapshotID != snapshotListID) {
-                return@launch
-            }
-
-            if (from !in base.list.indices) {
-                return@launch
-            }
-
-            _overrideTaskListState.value = ReorderedTaskList(
-                base = base,
-                modified = base.copy(),
-                node = from to from
-            )
-        }
+           _reorderedQueueState.value = ReorderedQueue(
+               base = base,
+               modified = base.copy(),
+               node = from to from
+           )
+       }
     }
 
     fun moveTask(
-        snapshotListID: String,
+        qId: String,
         from: Int,
+        expectFromID: Int,
         to: Int,
+        expectToID: Int
     ) {
-        viewModelScope.launch {
+        val reordered = _reorderedQueueState.value
+            ?: run {
+                val base = _queueState.value
 
-            val reordered = _overrideTaskListState.value
-                ?: return@launch
-
-            val reorderedMod = reordered.modified
-
-            if (from == to || reordered.modified.listSnapshotID != snapshotListID) {
-                return@launch
+                ReorderedQueue(
+                    base = base,
+                    modified = base.copy(),
+                    node = from to from
+                ).also {
+                    _reorderedQueueState.value = it
+                }
             }
 
-            if (from !in reorderedMod.list.indices || to !in reorderedMod.list.indices) {
-                return@launch
-            }
+        val reorderedMod = reordered.modified
 
-            val mod = reorderedMod.copy(
-                list = reorderedMod.list
-                    .toMutableList()
-                    .apply {
-                        add(to, removeAt(from))
-                    }
-                    .toPersistentList()
-            )
+        val mod = reorderedMod.copy(
+            tracks = reorderedMod.tracks
+                .toMutableList()
+                .apply {
+                    add(to, removeAt(from))
+                }
+                .toPersistentList()
+        )
 
-            _overrideTaskListState.value = ReorderedTaskList(
-                base = reordered.base,
-                modified = mod,
-                node = (reordered.node.first) to to
-            )
-        }
+        _reorderedQueueState.value = ReorderedQueue(
+            base = reordered.base,
+            modified = mod,
+            node = (reordered.node.first) to to
+        )
     }
 
     fun cancelMoveTask() {
         viewModelScope.launch {
-            _overrideTaskListState.value = null
+            _reorderedQueueState.value = null
         }
     }
 
-    fun commitMoveTask() {
+    fun commitMoveQueueItem() {
         viewModelScope.launch {
-            val mod = _overrideTaskListState.value
+            val mod = _reorderedQueueState.value
                 ?: return@launch
 
-            if (mod.modified.listSnapshotID != actualTaskListState.value.listSnapshotID) {
-                // the List snapshot was changed
-                _overrideTaskListState.value = null
-                return@launch
-            }
-
-            _repo.moveTask(mod.modified.listSnapshotID, mod.node.first, mod.node.second)
+            _controller
+                .moveItemAsync(
+                    expectQueueID = mod.modified.queueID,
+                    expectTracksMod = mod.modified.tracksMod,
+                    expectFromIndex = mod.node.first,
+                    expectFromId = mod.base.tracks[mod.node.first].itemID,
+                    expectToIndex = mod.node.second,
+                    expectToId = mod.base.tracks[mod.node.second].itemID
+                )
                 .await()
-                .notifyTask?.join()
+                .notify?.join()
 
-            if (_overrideTaskListState.value === mod) {
-                _overrideTaskListState.value = null
+            if (_reorderedQueueState.value === mod) {
+                _reorderedQueueState.value = null
             }
         }
     }
 
     @Immutable
-    private data class ReorderedTaskList(
-        val base: TaskList,
-        val modified: TaskList,
+    private data class ReorderedQueue(
+        val base: TrackQueue,
+        val modified: TrackQueue,
         val node: Pair<Int, Int>
     )
 }

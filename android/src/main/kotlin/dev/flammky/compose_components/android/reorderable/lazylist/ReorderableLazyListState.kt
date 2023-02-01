@@ -134,6 +134,7 @@ class ReorderableLazyListState internal constructor(
             y = startY
         }
         return visibleItemsInfo
+            // afaik we will always get array backed collection, so we can just use the `fast` variant everywhere
             .fastFirstOrNull {
                 x in it.leftPos..it.rightPos && y in it.topPos..it.bottomPos
             }
@@ -159,10 +160,10 @@ class ReorderableLazyListState internal constructor(
 @Composable
 fun rememberReorderableLazyListState(
     lazyListState: LazyListState,
-    onDragStart: (/*snapshot: Any?,*/ item: ItemPosition) -> Unit,
-    canDragOverItem: (/*snapshot: Any?,*/ item: ItemPosition, dragging: ItemPosition) -> Boolean,
-    onDragEnd: (/*snapshot: Any?,*/ cancelled: Boolean, from: ItemPosition, to: ItemPosition) -> Unit,
-    onMove: (/*snapshot: Any?,*/ from: ItemPosition, to: ItemPosition) -> Unit,
+    onDragStart: (item: ItemPosition) -> Unit,
+    canDragOverItem: (item: ItemPosition, dragging: ItemPosition) -> Boolean,
+    onDragEnd: (cancelled: Boolean, from: ItemPosition, to: ItemPosition) -> Unit,
+    onMove: (from: ItemPosition, to: ItemPosition) -> Unit,
 ): ReorderableLazyListState {
     return remember(lazyListState) {
         ReorderableLazyListState(

@@ -4,6 +4,8 @@ import android.os.Parcel
 import android.os.Parcelable
 import android.util.Log
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -60,8 +62,9 @@ private fun OrderingTestUsage(
                 lazyListState = lazyListState,
                 onDragStart = start@ { item: ItemPosition ->
                     val key = item.key as? QueueItemPositionKey
-                        ?: return@start
+                        ?: return@start false
                     viewModel.startMoveTrack(key.qID, item.index, key.idInQueue)
+                    true
                 },
                 onDragEnd = { cancelled, _, _ ->
                     if (!cancelled) {

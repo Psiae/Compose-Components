@@ -10,6 +10,7 @@ import androidx.compose.runtime.snapshots.Snapshot
     AnnotationTarget.FUNCTION,
     AnnotationTarget.PROPERTY_GETTER,
     AnnotationTarget.PROPERTY_SETTER,
+    AnnotationTarget.TYPE,
 )
 @Retention(AnnotationRetention.SOURCE)
 annotation class SnapshotRead()

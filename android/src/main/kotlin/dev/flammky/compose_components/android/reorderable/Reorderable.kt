@@ -5,5 +5,5 @@ import androidx.compose.ui.input.pointer.PointerId
 
 data class DragStart(
     val id: PointerId,
-    val offset: Offset? = null
+    val offset: Offset = Offset.Zero
 )

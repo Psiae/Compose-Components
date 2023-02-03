@@ -119,7 +119,8 @@ private suspend inline fun AwaitPointerEventScope.awaitPointerSlopOrCancellation
  * @sample androidx.compose.foundation.samples.AwaitLongPressOrCancellationSample
  */
 suspend fun AwaitPointerEventScope.awaitLongPressOrCancellation(
-    pointerId: PointerId
+    pointerId: PointerId,
+    timeMs: Long?
 ): PointerInputChange? {
     if (currentEvent.isPointerUp(pointerId)) {
         return null // The pointer has already been lifted, so the long press is cancelled.
@@ -130,7 +131,7 @@ suspend fun AwaitPointerEventScope.awaitLongPressOrCancellation(
 
     var longPress: PointerInputChange? = null
     var currentDown = initialDown
-    val longPressTimeout = viewConfiguration.longPressTimeoutMillis
+    val longPressTimeout = timeMs ?: viewConfiguration.longPressTimeoutMillis
     return try {
         // wait for first tap up or long press
         withTimeout(longPressTimeout) {

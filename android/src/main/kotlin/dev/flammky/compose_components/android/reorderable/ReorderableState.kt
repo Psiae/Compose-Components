@@ -33,6 +33,10 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
         @SnapshotRead
         get
 
+    abstract val draggingItemPosition: ItemPosition?
+        @SnapshotRead
+        get
+
     protected abstract val firstVisibleItemIndex: Int
         @SnapshotRead
         get

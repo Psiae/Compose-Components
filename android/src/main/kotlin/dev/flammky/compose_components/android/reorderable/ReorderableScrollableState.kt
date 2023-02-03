@@ -15,6 +15,9 @@ abstract class ReorderableScrollableState <ScrollableItemInfo> internal construc
     abstract val isVerticalScroll: Boolean
         @SnapshotRead get
 
+    abstract val isHorizontalScroll: Boolean
+        @SnapshotRead get
+
     abstract val reverseLayout: Boolean
         @SnapshotRead get
 

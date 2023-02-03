@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.util.fastFirstOrNull
 import dev.flammky.compose_components.core.SnapshotReader
@@ -29,40 +30,49 @@ internal fun rememberReorderableLazyListApplier(
 }
 
 internal class RealReorderableLazyListApplier(
-    state: ReorderableLazyListState
+    private val state: ReorderableLazyListState
 ) : ReorderableLazyListApplier {
 
     override val pointerInputFilterModifier: Modifier = Modifier.pointerInput(Unit) {
+        // for each possible gesture, install child drag listener
         forEachGesture {
-            state.childDragStartChannel.receive().let { dragStart ->
-                awaitPointerEventScope {
-                    currentEvent.changes.fastFirstOrNull { pointerInputChange ->
-                        pointerInputChange.id == dragStart.id
-                    }
-                }?.let { validPress ->
-                    if (state.onStartDrag(validPress.position.x.toInt(), validPress.position.y.toInt())) {
-                        dragStart.offset
-                            ?.run {
-                                state.onDrag(x.toInt(), y.toInt())
+            // await first DragStart, for each gesture we only accept the first emission
+            state.childDragStartChannel.receive()
+                .let { dragStart ->
+                    // received DragStart, create pointer event awaiter on this composable
+                    awaitPointerEventScope {
+                        // find the event to get the position in the parent
+                        currentEvent.changes.fastFirstOrNull { pointerInputChange ->
+                            pointerInputChange.id == dragStart.id
+                        }?.takeIf {
+                            // check if the state allow the drag
+                            state.onStartDrag(it.position.x.toInt(), it.position.y.toInt())
+                        }?.let {
+                            if (dragStart.offset != Offset.Zero) {
+                                // report initial drag offset
+                                state.onDrag(dragStart.offset.x.toInt(), dragStart.offset.y.toInt())
                             }
-                        awaitPointerEventScope {
-                            drag(dragStart.id) { change ->
+                            val dragCompleted = drag(dragStart.id) { change ->
+                                // report each drag position change
                                 state.onDrag(change.position.x.toInt(), change.position.y.toInt())
-                            }.let { completeNormally ->
-                                if (completeNormally) {
-                                    state.onDragEnd()
-                                } else {
-                                    state.onDragCancelled()
-                                }
+                            }
+                            if (dragCompleted) {
+                                // completed normally
+                                state.onDragEnd()
+                            } else {
+                                // was cancelled
+                                state.onDragCancelled()
                             }
                         }
                     }
                 }
-            }
         }
     }
 
-    override fun apply(lazyListScope: LazyListScope, content: ReorderableLazyListScope.() -> Unit) {
-        lazyListScope.item {  }
+    override fun apply(
+        lazyListScope: LazyListScope,
+        content: @SnapshotReader ReorderableLazyListScope.() -> Unit
+    ) {
+        RealReorderableLazyListScope(state, lazyListScope).apply(content)
     }
 }

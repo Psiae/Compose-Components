@@ -11,7 +11,7 @@ import kotlinx.coroutines.channels.Channel
 
 class ReorderableLazyListState internal constructor(
     val lazyListState: LazyListState,
-    val onDragStart: (item: ItemPosition) -> Unit,
+    val onDragStart: (item: ItemPosition) -> Boolean,
     val onDragEnd: (cancelled: Boolean, from: ItemPosition, to: ItemPosition) -> Unit,
     val canDragOver: (from: ItemPosition, to: ItemPosition) -> Boolean,
     val onMove: (from: ItemPosition, to: ItemPosition) -> Boolean,
@@ -35,6 +35,10 @@ class ReorderableLazyListState internal constructor(
         @SnapshotRead
         get() = lazyListState.layoutInfo.orientation == Orientation.Vertical
 
+    override val isHorizontalScroll: Boolean
+        @SnapshotRead
+        get() = lazyListState.layoutInfo.orientation == Orientation.Horizontal
+
     override val visibleItemsInfo: List<LazyListItemInfo>
         @SnapshotRead
         get() = lazyListState.layoutInfo.visibleItemsInfo
@@ -51,16 +55,24 @@ class ReorderableLazyListState internal constructor(
         @SnapshotRead
         get() = _selectedItem?.itemKey
 
+    override val draggingItemPosition: ItemPosition?
+        @SnapshotRead
+        get() = _selectedItem?.let { ItemPosition(it.itemIndex, it.itemKey) }
+
     override val firstVisibleItemIndex: Int
+        @SnapshotRead
         get() = lazyListState.firstVisibleItemIndex
 
     override val firstVisibleItemScrollOffset: Int
+        @SnapshotRead
         get() = lazyListState.firstVisibleItemScrollOffset
 
     override val viewportStartOffset: Int
+        @SnapshotRead
         get() = lazyListState.layoutInfo.viewportStartOffset
 
     override val viewportEndOffset: Int
+        @SnapshotRead
         get() = lazyListState.layoutInfo.viewportEndOffset
 
     override val LazyListItemInfo.itemIndex: Int
@@ -123,7 +135,7 @@ class ReorderableLazyListState internal constructor(
             0
         }
 
-    override fun onStartDrag(startX: Int, startY: Int): Boolean {
+    internal override fun onStartDrag(startX: Int, startY: Int): Boolean {
         val x: Int
         val y: Int
         if (isVerticalScroll) {
@@ -138,21 +150,22 @@ class ReorderableLazyListState internal constructor(
             .fastFirstOrNull {
                 x in it.leftPos..it.rightPos && y in it.topPos..it.bottomPos
             }
-            ?.also { itemInfo ->
+            ?.let { itemInfo ->
                 _selectedItem = itemInfo
                 draggingItemIndex = itemInfo.itemIndex
-            } != null
+                onDragStart(ItemPosition(itemInfo.itemIndex, itemInfo.itemKey))
+            } == true
     }
 
-    override fun onDrag(dragX: Int, dragY: Int) {
+    internal override fun onDrag(dragX: Int, dragY: Int) {
         TODO("Not yet implemented")
     }
 
-    override fun onDragEnd() {
+    internal override fun onDragEnd() {
         TODO("Not yet implemented")
     }
 
-    override fun onDragCancelled() {
+    internal override fun onDragCancelled() {
         TODO("Not yet implemented")
     }
 }
@@ -160,7 +173,7 @@ class ReorderableLazyListState internal constructor(
 @Composable
 fun rememberReorderableLazyListState(
     lazyListState: LazyListState,
-    onDragStart: (item: ItemPosition) -> Unit,
+    onDragStart: (item: ItemPosition) -> Boolean,
     onDragEnd: (cancelled: Boolean, from: ItemPosition, to: ItemPosition) -> Unit,
     canDragOverItem: (item: ItemPosition, dragging: ItemPosition) -> Boolean,
     onMove: (from: ItemPosition, to: ItemPosition) -> Boolean,

@@ -26,7 +26,7 @@ abstract class ReorderableScrollableState <ScrollableItemInfo> internal construc
 
     @OptIn(ExperimentalCoroutinesApi::class)
     internal fun observeVisibleItemInfo(): Flow<List<ScrollableItemInfo>> {
-        return snapshotFlow { draggingItemIndex != null }
+        return snapshotFlow { expectDraggingItemIndex != null }
             .flatMapLatest { dragging ->
                 if (dragging) snapshotFlow { visibleItemsInfo } else flowOf(null)
             }

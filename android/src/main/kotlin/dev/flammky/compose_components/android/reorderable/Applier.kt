@@ -7,9 +7,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.util.fastFirstOrNull
 import dev.flammky.compose_components.core.SnapshotReader
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 
 interface ReorderableLazyListApplier {
 
@@ -44,24 +48,44 @@ internal class RealReorderableLazyListApplier(
                         // find the event to get the position in the parent
                         currentEvent.changes.fastFirstOrNull { pointerInputChange ->
                             pointerInputChange.id == dragStart.id
-                        }?.takeIf {
+                        }?.takeIf { firstDown ->
                             // check if the state allow the drag
-                            state.onStartDrag(it.position.x.toInt(), it.position.y.toInt())
-                        }?.let {
+                            state.onStartDrag(
+                                firstDown.id.value,
+                                firstDown.position.x.toInt(),
+                                firstDown.position.y.toInt()
+                            )
+                        }?.let { _ ->
                             if (dragStart.offset != Offset.Zero) {
                                 // report initial drag offset
-                                state.onDrag(dragStart.offset.x.toInt(), dragStart.offset.y.toInt())
+                                state.onDrag(dragStart.id.value, dragStart.offset.x.toInt(), dragStart.offset.y.toInt())
                             }
-                            val dragCompleted = drag(dragStart.id) { change ->
-                                // report each drag position change
-                                state.onDrag(change.position.x.toInt(), change.position.y.toInt())
-                            }
+                            val lastDragId: PointerId = dragStart.id
+                            var lastDragX: Int = dragStart.offset.x.toInt()
+                            var lastDragY: Int = dragStart.offset.y.toInt()
+                            val dragCompleted =
+                                try {
+                                    drag(dragStart.id) { change ->
+                                        // report each drag position change
+                                        check(lastDragId == change.id)
+                                        lastDragX = change.position.x.toInt()
+                                        lastDragY = change.position.y.toInt()
+                                        val accepted = state.onDrag(
+                                            lastDragId.value,
+                                            lastDragX,
+                                            lastDragY
+                                        )
+                                        if (!accepted) throw CancellationException()
+                                    }
+                                } catch (ce: CancellationException) {
+                                    false
+                                }
                             if (dragCompleted) {
                                 // completed normally
-                                state.onDragEnd()
+                                state.onDragEnd(lastDragId.value, lastDragX, lastDragY)
                             } else {
                                 // was cancelled
-                                state.onDragCancelled()
+                                state.onDragCancelled(lastDragId.value, lastDragX, lastDragY)
                             }
                         }
                     }

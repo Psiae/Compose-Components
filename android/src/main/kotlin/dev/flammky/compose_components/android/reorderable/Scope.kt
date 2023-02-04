@@ -46,6 +46,7 @@ interface ReorderableLazyItemScope {
         val key: Any
 
         val indexInParent: Int
+        val indexInBatch: Int
     }
 }
 
@@ -73,6 +74,7 @@ internal class RealReorderableLazyListScope(
                     RealReorderableLazyItemScope(
                         parentOrientation = orientation,
                         itemPositionInParent = ItemPosition(index, key),
+                        itemPositionInBatch = ItemPosition(0, key),
                         parentDraggingItem = {
                             state.draggingItemPosition
                         },
@@ -103,6 +105,7 @@ internal class RealReorderableLazyListScope(
                     RealReorderableLazyItemScope(
                         parentOrientation = orientation,
                         itemPositionInParent = ItemPosition(index + i, key),
+                        itemPositionInBatch = ItemPosition(i, key),
                         parentDraggingItem = {
                             state.draggingItemPosition
                         },
@@ -121,11 +124,12 @@ internal class RealReorderableLazyListScope(
 internal class RealReorderableLazyItemScope(
     private val parentOrientation: Orientation,
     private val itemPositionInParent: ItemPosition,
+    private val itemPositionInBatch: ItemPosition,
     private val parentDraggingItem: @SnapshotRead () -> ItemPosition?,
     private val onReorderInput: (pointerId: PointerId, offset: Offset?) -> Unit,
 ) : ReorderableLazyItemScope {
 
-    // make it lazy ?
+    // TODO: Make things as lazy as possible
     override val info = object : ReorderableLazyItemScope.ItemInfo {
 
         override val dragging: Boolean by derivedStateOf(policy = structuralEqualityPolicy()) {
@@ -134,6 +138,7 @@ internal class RealReorderableLazyItemScope(
 
         override val key: Any = itemPositionInParent.key
         override val indexInParent: Int = itemPositionInParent.index
+        override val indexInBatch: Int = itemPositionInBatch.index
     }
 
     override fun Modifier.reorderInput(): Modifier {

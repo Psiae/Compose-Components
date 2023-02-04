@@ -4,8 +4,6 @@ import android.os.Parcel
 import android.os.Parcelable
 import android.util.Log
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -73,7 +71,7 @@ private fun OrderingTestUsage(
                         viewModel.cancelMoveTask()
                     }
                 },
-                canDragOverItem = { _, _ -> true },
+                movable = { _, _ -> true },
                 onMove = move@ { from, to ->
                     Log.d("Reorderable", "onMove($from, $to)")
                     // allow smart-cast

@@ -52,21 +52,19 @@ internal class ReorderingViewModel : ViewModel() {
         from: Int,
         expectFromID: Int
     ) {
-       viewModelScope.launch {
-           // should we assert that `overrideTaskListState` should be null ?
+        // should we assert that `overrideTaskListState` should be null ?
 
-           val base = _queueState.value
+        val base = _queueState.value
 
-           if (base.queueID != qId || base.tracks.getOrNull(from)?.itemID != expectFromID) {
-               return@launch
-           }
+        if (base.queueID != qId || base.tracks.getOrNull(from)?.itemID != expectFromID) {
+            return
+        }
 
-           _reorderedQueueState.value = ReorderedQueue(
-               base = base,
-               modified = base.copy(),
-               node = from to from
-           )
-       }
+        _reorderedQueueState.value = ReorderedQueue(
+            base = base,
+            modified = base.copy(),
+            node = from to from
+        )
     }
 
     fun moveTask(
@@ -77,17 +75,7 @@ internal class ReorderingViewModel : ViewModel() {
         expectToID: Int
     ) {
         val reordered = _reorderedQueueState.value
-            ?: run {
-                val base = _queueState.value
-
-                ReorderedQueue(
-                    base = base,
-                    modified = base.copy(),
-                    node = from to from
-                ).also {
-                    _reorderedQueueState.value = it
-                }
-            }
+            ?: error("")
 
         val reorderedMod = reordered.modified
 

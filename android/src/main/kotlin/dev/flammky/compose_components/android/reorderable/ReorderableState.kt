@@ -20,7 +20,7 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      * The Index of the currently dragging Item or null if none is dragged.
      * State Change within the getter will notify SnapshotObserver that reads it
      */
-    abstract val draggingItemIndex: Int?
+    abstract val expectDraggingItemIndex: Int?
         @SnapshotRead
         get
 
@@ -63,31 +63,52 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      */
     protected abstract val ItemInfo.itemKey: Any
 
+    //
+    // Consider start and end variant ?
+    //
+
     /**
-     * The Left Position of The Item relative to the Parent Layout ViewPort
+     * The Left position of the Item relative to the Parent Layout ViewPort
      */
     protected abstract val ItemInfo.leftPos: Int
         @SnapshotRead
         get
 
     /**
-     * The Right Position of The Item relative to the Parent Layout ViewPort
+     * The Right position of the Item relative to the Parent Layout Viewport
      */
     protected abstract val ItemInfo.rightPos: Int
         @SnapshotRead
         get
 
+
     /**
-     * The Top Position of The Item relative to the Parent Layout ViewPort
+     * The Top position of the Item relative to the Parent Layout Viewport
      */
     protected abstract val ItemInfo.topPos: Int
         @SnapshotRead
         get
 
     /**
-     * The Bottom Position of The Item relative to the Parent Layout ViewPort
+     * The Bottom position of the Item relative to the Parent Layout Viewport
      */
     protected abstract val ItemInfo.bottomPos: Int
+        @SnapshotRead
+        get
+
+    /**
+     * The Start position of the Item relative to the Parent Layout Viewport,
+     * relative to orientation
+     */
+    protected abstract val ItemInfo.startPos: Int
+        @SnapshotRead
+        get
+
+    /**
+     * The End position of the Item relative to the Parent Layout Viewport,
+     * relative to orientation
+     */
+    protected abstract val ItemInfo.endPos: Int
         @SnapshotRead
         get
 
@@ -105,8 +126,53 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
         @SnapshotRead
         get
 
-    internal abstract fun onStartDrag(startX: Int, startY: Int): Boolean
-    internal abstract fun onDrag(dragX: Int, dragY: Int)
-    internal abstract fun onDragEnd()
-    internal abstract fun onDragCancelled()
+    /**
+     * onStartDrag event
+     *
+     * @param id the ID of the event
+     * **
+     * internal for test purposes, public if necessary
+     * **
+     *
+     * @param startX the `x` axis position of this drag (0 is left unless reversed)
+     * @param startY the `y` axis position of this drag (0 is top unless reversed)
+     */
+    internal abstract fun onStartDrag(id: Long, startX: Int, startY: Int, /*expectKey: Any*/): Boolean
+
+    /**
+     * onDrag event
+     *
+     * @param id the ID of the start event, internal for test purposes
+     * **
+     * internal for test purposes, public if necessary
+     * **
+     *
+     * @param dragX the `x` axis position of this drag (0 is left unless reversed)
+     * @param dragY the `y` axis position of this drag (0 is top unless reversed)
+     */
+    internal abstract fun onDrag(id: Long, dragX: Int, dragY: Int, /*expectKey: Any*/): Boolean
+
+    /**
+     * onDragEnd event
+     *
+     * @param id the ID of the start event, internal for test purposes
+     * **
+     * internal for test purposes, public if necessary
+     * **
+     * @param endX the `x` axis position of this drag (0 is left unless reversed)
+     * @param endY the `y` axis position of this drag (0 is top unless reversed)
+     */
+    internal abstract fun onDragEnd(id: Long, endX: Int, endY: Int, /*expectKey: Any*/)
+
+    /**
+     * onDragCancelled event
+     *
+     * @param id the ID of the start event, internal for test purposes
+     * **
+     * internal for test purposes, public if necessary
+     * **
+     * @param endX the `x` axis position of this drag (0 is left unless reversed)
+     * @param endY the `y` axis position of this drag (0 is top unless reversed)
+     */
+    internal abstract fun onDragCancelled(id: Long, endX: Int, endY: Int, /*expectKey: Any*/)
 }

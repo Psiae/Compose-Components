@@ -1,3 +1,5 @@
+@file:Suppress("NOTHING_TO_INLINE")
+
 package dev.flammky.compose_components.core
 
 inline fun notImplementedError(): Nothing = throw NotImplementedError()

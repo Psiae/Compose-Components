@@ -16,7 +16,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.flammky.compose_components.android.R
+import dev.flammky.compose_components.R
 import dev.flammky.compose_components.android.reorderable.ItemPosition
 import dev.flammky.compose_components.android.reorderable.ReorderableLazyColumn
 import dev.flammky.compose_components.android.reorderable.ReorderableLazyItemScope
@@ -121,7 +121,7 @@ private fun ReorderableLazyItemScope.TestTaskItemLayout(
         modifier = Modifier
             .fillMaxWidth()
             .height(60.dp)
-            .reorderableItemModifiers(),
+            .reorderingItemVisualModifiers(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(

@@ -3,41 +3,51 @@ package dev.flammky.compose_components.android.reorderable
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.forEachGesture
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerId
-import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.util.fastFirstOrNull
+import dev.flammky.compose_components.core.SnapshotRead
 import dev.flammky.compose_components.core.SnapshotReader
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 
-interface ReorderableLazyListApplier {
+internal interface ReorderableLazyListApplier {
 
-    val pointerInputFilterModifier: Modifier
-    fun apply(
+    val lazyLayoutModifiers: Modifier
+
+    fun onRecomposeContent(
         lazyListScope: LazyListScope,
         content: @SnapshotReader ReorderableLazyListScope.() -> Unit
     )
 }
 
-@Composable
+/*@Composable
 internal fun rememberReorderableLazyListApplier(
     state: ReorderableLazyListState
 ): ReorderableLazyListApplier {
-    return remember(state) {
-        RealReorderableLazyListApplier(state)
+    val applier = remember(state) {
+        RealReorderableLazyListApplier(state).apply { acquireState() }
     }
-}
+    DisposableEffect(
+        key1 = applier,
+        effect = {
+            onDispose { applier.releaseState() }
+        }
+    )
+    return applier
+}*/
 
 internal class RealReorderableLazyListApplier(
     private val state: ReorderableLazyListState
 ) : ReorderableLazyListApplier {
 
-    override val pointerInputFilterModifier: Modifier = Modifier.pointerInput(Unit) {
+    private var _currentComposition by mutableStateOf<RealReorderableLazyListScope?>(null)
+    
+    private val pointerInputFilterModifier: Modifier = Modifier.pointerInput(Unit) {
         // for each possible gesture, install child drag listener
         forEachGesture {
             // await first DragStart, for each gesture we only accept the first emission
@@ -93,10 +103,18 @@ internal class RealReorderableLazyListApplier(
         }
     }
 
-    override fun apply(
+    override val lazyLayoutModifiers: Modifier = pointerInputFilterModifier
+
+    override fun onRecomposeContent(
         lazyListScope: LazyListScope,
         content: @SnapshotReader ReorderableLazyListScope.() -> Unit
     ) {
-        RealReorderableLazyListScope(state, lazyListScope).apply(content)
+        RealReorderableLazyListScope(
+            state = state,
+            lazyListScope = lazyListScope
+        ).apply(content)
     }
+
+    @SnapshotRead
+    fun indexOfKey(key: Any): Int = _currentComposition?.indexOfKey(key) ?: -1
 }

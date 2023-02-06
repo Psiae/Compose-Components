@@ -1,5 +1,6 @@
 package dev.flammky.compose_components.android.reorderable
 
+import android.util.Log
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
@@ -13,6 +14,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import java.io.File
+import java.util.jar.Manifest
 import kotlin.math.pow
 import kotlin.math.sign
 
@@ -25,6 +28,8 @@ class ReorderableLazyListState internal constructor(
     private val movable: ((from: ItemPosition, to: ItemPosition) -> Boolean)?,
     private val onMove: ((from: ItemPosition, to: ItemPosition) -> Boolean),
 ) : ReorderableScrollableState<LazyListItemInfo>() {
+
+    private val _applier = RealReorderableLazyListApplier(this)
 
     // TODO: we can wrap these into an independent instance
     private var _draggingId: Long? = null
@@ -40,6 +45,7 @@ class ReorderableLazyListState internal constructor(
             visibleItem.itemIndex == expectDraggingItemIndex
         }
 
+    internal val applier: ReorderableLazyListApplier = _applier
     internal override val childDragStartChannel: Channel<DragStart> = Channel()
     internal override val scrollChannel: Channel<Float> = Channel()
 
@@ -60,13 +66,72 @@ class ReorderableLazyListState internal constructor(
         @SnapshotRead
         get() = _expectDraggingItemCurrentIndex
 
+    override val currentLayoutDraggingItemIndex: Int?
+        @SnapshotRead
+        get() = _draggingItemSnapshot?.let {
+            _applier.indexOfKey(it.key).takeIf { i -> i != -1 }
+        }
+
     override val draggingItemKey: Any?
         @SnapshotRead
         get() = _draggingItemSnapshot?.itemKey
 
     override val draggingItemPosition: ItemPosition?
         @SnapshotRead
-        get() = _draggingItemSnapshot?.let { ItemPosition(it.itemIndex, it.itemKey) }
+        get() = _draggingItemSnapshot
+            ?.let {
+                ItemPosition(expectDraggingItemIndex ?: return@let null, it.itemKey)
+            }
+
+    override val draggingItemDelta: Offset
+        @SnapshotRead
+        get() = _draggingItemDelta
+
+    override val draggingItemLeftPos: Float
+        get() = _draggingItemSnapshot
+            ?.let { draggingItem ->
+                lazyListState.layoutInfo.visibleItemsInfo
+                    .fastFirstOrNull {
+                        it.key == draggingItem.key
+                    }
+                    ?.run { leftPos + _draggingItemDelta.x }
+            } ?: 0f
+
+    override val draggingItemTopPos: Float
+        get() = _draggingItemSnapshot
+            ?.let { draggingItem ->
+                lazyListState.layoutInfo.visibleItemsInfo
+                    .fastFirstOrNull {
+                        it.key == draggingItem.key
+                    }
+                    ?.run { topPos + _draggingItemDelta.y }
+            } ?: 0f
+
+    override val draggingItemRightPos: Float
+        get() = _draggingItemSnapshot
+            ?.let { draggingItem ->
+                lazyListState.layoutInfo.visibleItemsInfo
+                    .fastFirstOrNull {
+                        it.key == draggingItem.key
+                    }
+                    ?.run { rightPos + _draggingItemDelta.x }
+            } ?: 0f
+
+    override val draggingItemBottomPos: Float
+        get() = _draggingItemSnapshot
+            ?.let { draggingItem ->
+                lazyListState.layoutInfo.visibleItemsInfo
+                    .fastFirstOrNull {
+                        it.key == draggingItem.key
+                    }
+                    ?.run { bottomPos + _draggingItemDelta.y }
+            } ?: 0f
+
+    override val draggingItemStartPos: Float
+        get() = if (isVerticalScroll) draggingItemTopPos else draggingItemLeftPos
+
+    override val draggingItemEndPos: Float
+        get() = if (isVerticalScroll) draggingItemBottomPos else draggingItemRightPos
 
     override val firstVisibleItemIndex: Int
         @SnapshotRead
@@ -231,6 +296,7 @@ class ReorderableLazyListState internal constructor(
                 ItemPosition(selected.index, selected.key),
                 ItemPosition(target.index, target.key)
             )
+            if (!moved) return false
         }
         checkOnDragOverscroll(selected, dragDelta)
         return true

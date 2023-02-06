@@ -23,18 +23,4 @@ abstract class ReorderableScrollableState <ScrollableItemInfo> internal construc
 
     abstract val visibleItemsInfo: List<ScrollableItemInfo>
         @SnapshotRead get
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    internal fun observeVisibleItemInfo(): Flow<List<ScrollableItemInfo>> {
-        return snapshotFlow { expectDraggingItemIndex != null }
-            .flatMapLatest { dragging ->
-                if (dragging) snapshotFlow { visibleItemsInfo } else flowOf(null)
-            }
-            .filterNotNull()
-            .distinctUntilChanged { old, new ->
-                // distinct the visible scroll layout
-                old.firstOrNull()?.itemIndex == new.firstOrNull()?.itemIndex &&
-                        old.count() == new.count()
-            }
-    }
 }

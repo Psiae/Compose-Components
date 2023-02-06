@@ -1,5 +1,6 @@
 package dev.flammky.compose_components.android.reorderable
 
+import androidx.compose.ui.geometry.Offset
 import dev.flammky.compose_components.core.SnapshotRead
 import kotlinx.coroutines.channels.Channel
 
@@ -17,10 +18,22 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
     internal abstract val childDragStartChannel: Channel<DragStart>
 
     /**
-     * The Index of the currently dragging Item or null if none is dragged.
+     * The expected index of the currently dragging Item,
+     * does not represent the actual index on the layout
+     *
      * State Change within the getter will notify SnapshotObserver that reads it
      */
     abstract val expectDraggingItemIndex: Int?
+        @SnapshotRead
+        get
+
+    /**
+     * The last known index of the currently dragging Item in the layout scope,
+     * does not represent the actual index on the layout
+     *
+     * State Change within the getter will notify SnapshotObserver that reads it
+     */
+    abstract val currentLayoutDraggingItemIndex: Int?
         @SnapshotRead
         get
 
@@ -34,6 +47,34 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
         get
 
     abstract val draggingItemPosition: ItemPosition?
+        @SnapshotRead
+        get
+
+    abstract val draggingItemDelta: Offset
+        @SnapshotRead
+        get
+
+    abstract val draggingItemLeftPos: Float
+        @SnapshotRead
+        get
+
+    abstract val draggingItemTopPos: Float
+        @SnapshotRead
+        get
+
+    abstract val draggingItemRightPos: Float
+        @SnapshotRead
+        get
+
+    abstract val draggingItemBottomPos: Float
+        @SnapshotRead
+        get
+
+    abstract val draggingItemStartPos: Float
+        @SnapshotRead
+        get
+
+    abstract val draggingItemEndPos: Float
         @SnapshotRead
         get
 

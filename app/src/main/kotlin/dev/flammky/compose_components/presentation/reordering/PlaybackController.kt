@@ -16,12 +16,13 @@ interface PlaybackController {
     fun getCachedTrackQueueAsync(): Deferred<TrackQueue>
 
     fun moveItemAsync(
+        // Instead of these we should compare the `path` of the reorder
         expectQueueID: String,
         expectTracksMod: Int,
         expectFromIndex: Int,
         expectFromId: Int,
         expectToIndex: Int,
-        expectToId: Int
+        expectToId: Int,
     ): Deferred<MutateQueueResult>
 
 
@@ -63,7 +64,7 @@ private class RealPlaybackController() : PlaybackController {
                     }
                 }
                 .toPersistentList()
-            val i = Random.nextInt(101)
+            val i = Random.nextInt(100)
             TrackQueue(
                 queueID = qID,
                 tracksMod = 1,

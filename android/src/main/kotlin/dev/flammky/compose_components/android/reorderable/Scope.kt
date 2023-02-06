@@ -7,12 +7,13 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
-import dev.flammky.compose_components.core.SnapshotRead
+import androidx.compose.ui.zIndex
+import dev.flammky.compose_components.core.*
 import dev.flammky.compose_components.core.horizontalOffset
-import dev.flammky.compose_components.core.notImplementedError
 import dev.flammky.compose_components.core.verticalOffset
 
 interface ReorderableLazyListScope {
@@ -31,20 +32,50 @@ interface ReorderableLazyListScope {
     )
 }
 
+/**
+ * Interface Scope of an Reorderable Lazy Item
+ */
 interface ReorderableLazyItemScope {
 
+    /**
+     * Info about the item
+     */
     val info: ItemInfo
-    
-    fun Modifier.reorderInput(): Modifier
-    fun Modifier.reorderLongInput(timeMs: Long? = null): Modifier
-    fun Modifier.reorderableItemModifiers(): Modifier
 
+    /**
+     * install reorder input Modifier,
+     *
+     * any drag gesture starting on the composable with this modifier will be interpreted as start
+     * of reordering event
+     */
+    fun Modifier.reorderInput(): Modifier
+
+    /**
+     * install reorder input Modifier with timeout,
+     *
+     * any down gesture on the composable that last for at least the specified [timeMs] will be
+     * interpreted as start of reordering event
+     *
+     * defaults to the device `Long Press` duration config, normally it's 400ms
+     */
+    fun Modifier.reorderLongInput(timeMs: Long? = null): Modifier
+
+    /**
+     * install visual modifiers such as `zIndex` and `graphicsLayer` for the Item to float over other item,
+     *
+     * this is optional and is Not applied by default
+     */
+    @SnapshotRead
+    fun Modifier.reorderingItemVisualModifiers(): Modifier
+
+    /**
+     * Info about the item
+     */
     interface ItemInfo {
         val dragging: Boolean
             @SnapshotRead get
 
         val key: Any
-
         val indexInParent: Int
         val indexInBatch: Int
     }
@@ -55,38 +86,23 @@ internal class RealReorderableLazyListScope(
     private val lazyListScope: LazyListScope
 ) : ReorderableLazyListScope {
 
-    private var itemCount = 0
+    private val indexToKeyMapping = mutableMapOf<Int, Any>()
+    private val keyToIndexMapping = mutableMapOf<Any, Int>()
+
+    private var itemsLastIndex = 0
 
     private val orientation =
         if (state.isVerticalScroll)
             Orientation.Vertical
         else if (state.isHorizontalScroll)
             Orientation.Horizontal
-        else notImplementedError()
+        else exhaustedStateException()
 
-    override fun item(key: Any, content: @Composable ReorderableLazyItemScope.() -> Unit) {
-        val index = itemCount++
-        lazyListScope.item(
-            key = key
-        ) {
-            with(
-                receiver = remember {
-                    RealReorderableLazyItemScope(
-                        parentOrientation = orientation,
-                        itemPositionInParent = ItemPosition(index, key),
-                        itemPositionInBatch = ItemPosition(0, key),
-                        parentDraggingItem = {
-                            state.draggingItemPosition
-                        },
-                        onReorderInput = { pid, offset ->
-                            state.childDragStartChannel.trySend(DragStart(pid, offset ?: Offset.Zero))
-                        }
-                    )
-                }
-            ) {
-                content()
-            }
-        }
+    override fun item(
+        key: Any,
+        content: @Composable ReorderableLazyItemScope.() -> Unit
+    ) {
+        items(1, { key }) { content() }
     }
 
     override fun items(
@@ -94,23 +110,34 @@ internal class RealReorderableLazyListScope(
         key: (Int) -> Any,
         content: @Composable ReorderableLazyItemScope.(Int) -> Unit
     ) {
-        val index = itemCount
-        itemCount += count
+        val batchStartIndex = itemsLastIndex
+        itemsLastIndex += count
+        repeat(count) { i ->
+            val iKey = key(i)
+            indexToKeyMapping[i] = iKey
+            keyToIndexMapping[iKey] = i
+        }
         lazyListScope.items(
             count = count,
             key = key,
         ) { i ->
             with(
                 receiver = remember {
+                    val itemKey = indexToKeyMapping[i]!!
                     RealReorderableLazyItemScope(
                         parentOrientation = orientation,
-                        itemPositionInParent = ItemPosition(index + i, key),
-                        itemPositionInBatch = ItemPosition(i, key),
-                        parentDraggingItem = {
+                        positionInParent = ItemPosition(batchStartIndex + i, itemKey),
+                        positionInBatch = ItemPosition(i, itemKey),
+                        currentDraggingItemPositionInParent = {
                             state.draggingItemPosition
                         },
                         onReorderInput = { pid, offset ->
-                            state.childDragStartChannel.trySend(DragStart(pid, offset ?: Offset.Zero))
+                            state.childDragStartChannel.trySend(
+                                DragStart(pid, offset ?: Offset.Zero)
+                            )
+                        },
+                        currentDraggingItemStartDelta = {
+                            state.draggingItemDelta
                         }
                     )
                 }
@@ -119,13 +146,16 @@ internal class RealReorderableLazyListScope(
             }
         }
     }
+
+    fun indexOfKey(key: Any): Int = keyToIndexMapping.getOrElse(key) { -1 }
 }
 
 internal class RealReorderableLazyItemScope(
     private val parentOrientation: Orientation,
-    private val itemPositionInParent: ItemPosition,
-    private val itemPositionInBatch: ItemPosition,
-    private val parentDraggingItem: @SnapshotRead () -> ItemPosition?,
+    private val positionInParent: ItemPosition,
+    private val positionInBatch: ItemPosition,
+    private val currentDraggingItemPositionInParent: @SnapshotRead () -> ItemPosition?,
+    private val currentDraggingItemStartDelta: @SnapshotRead () -> Offset,
     private val onReorderInput: (pointerId: PointerId, offset: Offset?) -> Unit,
 ) : ReorderableLazyItemScope {
 
@@ -133,12 +163,12 @@ internal class RealReorderableLazyItemScope(
     override val info = object : ReorderableLazyItemScope.ItemInfo {
 
         override val dragging: Boolean by derivedStateOf(policy = structuralEqualityPolicy()) {
-            parentDraggingItem()?.takeIf { it.index == indexInParent && it.key == key } != null
+            currentDraggingItemPositionInParent()?.takeIf { it.key == key } != null
         }
 
-        override val key: Any = itemPositionInParent.key
-        override val indexInParent: Int = itemPositionInParent.index
-        override val indexInBatch: Int = itemPositionInBatch.index
+        override val key: Any = positionInParent.key
+        override val indexInParent: Int = positionInParent.index
+        override val indexInBatch: Int = positionInBatch.index
     }
 
     override fun Modifier.reorderInput(): Modifier {
@@ -208,8 +238,22 @@ internal class RealReorderableLazyItemScope(
         )
     }
 
-    override fun Modifier.reorderableItemModifiers(): Modifier {
-        return this.then(Modifier)
+    @SnapshotRead
+    override fun Modifier.reorderingItemVisualModifiers(): Modifier {
+        return this.combineIf(info.dragging) {
+            Modifier
+                .zIndex(1f)
+                .graphicsLayer {
+                    when (parentOrientation) {
+                        Orientation.Horizontal -> {
+                            translationX = currentDraggingItemStartDelta().x
+                        }
+                        Orientation.Vertical -> {
+                            translationY = currentDraggingItemStartDelta().y
+                        }
+                    }
+                }
+        }
     }
 }
 

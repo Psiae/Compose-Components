@@ -25,14 +25,11 @@ fun ReorderableLazyColumn(
     contentPadding: PaddingValues,
     content: @SnapshotReader ReorderableLazyListScope.() -> Unit
 ) {
-
-    val applier: ReorderableLazyListApplier = rememberReorderableLazyListApplier(state)
-
     LazyColumn(
-        modifier = modifier.then(applier.pointerInputFilterModifier),
+        modifier = modifier.then(state.applier.lazyLayoutModifiers),
         state = state.lazyListState,
         contentPadding = contentPadding
     ) scope@ {
-        applier.apply(this@scope, content)
+        state.applier.onRecomposeContent(this@scope, content)
     }
 }

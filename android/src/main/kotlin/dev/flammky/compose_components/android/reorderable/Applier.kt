@@ -7,9 +7,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.util.fastFirstOrNull
 import dev.flammky.compose_components.core.SnapshotRead
 import dev.flammky.compose_components.core.SnapshotReader
@@ -51,7 +51,7 @@ internal class RealReorderableLazyListApplier(
         // for each possible gesture, install child drag listener
         forEachGesture {
             // await first DragStart, for each gesture we only accept the first emission
-            state.childDragStartChannel.receive()
+            state.childReorderStartChannel.receive()
                 .let { dragStart ->
                     // received DragStart, create pointer event awaiter on this composable
                     awaitPointerEventScope {
@@ -63,27 +63,27 @@ internal class RealReorderableLazyListApplier(
                             state.onStartDrag(
                                 firstDown.id.value,
                                 firstDown.position.x.toInt(),
-                                firstDown.position.y.toInt()
+                                firstDown.position.y.toInt(),
+                                expectKey = dragStart.selfKey,
+                                expectIndex = dragStart.selfIndex
                             )
                         }?.let { _ ->
-                            if (dragStart.offset != Offset.Zero) {
-                                // report initial drag offset
-                                state.onDrag(dragStart.id.value, dragStart.offset.x.toInt(), dragStart.offset.y.toInt())
-                            }
                             val lastDragId: PointerId = dragStart.id
                             var lastDragX: Int = dragStart.offset.x.toInt()
                             var lastDragY: Int = dragStart.offset.y.toInt()
                             val dragCompleted =
                                 try {
-                                    drag(dragStart.id) { change ->
+                                    drag(dragStart.id) { onDrag ->
                                         // report each drag position change
-                                        check(lastDragId == change.id)
-                                        lastDragX = change.position.x.toInt()
-                                        lastDragY = change.position.y.toInt()
+                                        check(lastDragId == onDrag.id)
+                                        lastDragX = onDrag.position.x.toInt()
+                                        lastDragY = onDrag.position.y.toInt()
+                                        val change = onDrag.positionChange()
                                         val accepted = state.onDrag(
                                             lastDragId.value,
-                                            lastDragX,
-                                            lastDragY
+                                            change.x.toInt(),
+                                            change.y.toInt(),
+                                            expectKey = dragStart.selfKey
                                         )
                                         if (!accepted) throw CancellationException()
                                     }
@@ -92,10 +92,20 @@ internal class RealReorderableLazyListApplier(
                                 }
                             if (dragCompleted) {
                                 // completed normally
-                                state.onDragEnd(lastDragId.value, lastDragX, lastDragY)
+                                state.onDragEnd(
+                                    id = lastDragId.value,
+                                    endX = lastDragX,
+                                    endY = lastDragY,
+                                    expectKey = dragStart.selfKey
+                                )
                             } else {
                                 // was cancelled
-                                state.onDragCancelled(lastDragId.value, lastDragX, lastDragY)
+                                state.onDragCancelled(
+                                    id = lastDragId.value,
+                                    endX = lastDragX,
+                                    endY = lastDragY,
+                                    expectKey = dragStart.selfKey
+                                )
                             }
                         }
                     }
@@ -109,7 +119,7 @@ internal class RealReorderableLazyListApplier(
         lazyListScope: LazyListScope,
         content: @SnapshotReader ReorderableLazyListScope.() -> Unit
     ) {
-        RealReorderableLazyListScope(
+        _currentComposition = RealReorderableLazyListScope(
             state = state,
             lazyListScope = lazyListScope
         ).apply(content)

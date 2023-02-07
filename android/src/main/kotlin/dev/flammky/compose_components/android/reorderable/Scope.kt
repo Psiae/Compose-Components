@@ -1,11 +1,14 @@
 package dev.flammky.compose_components.android.reorderable
 
+import android.annotation.SuppressLint
+import android.util.Log
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.forEachGesture
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerId
@@ -114,8 +117,8 @@ internal class RealReorderableLazyListScope(
         itemsLastIndex += count
         repeat(count) { i ->
             val iKey = key(i)
-            indexToKeyMapping[i] = iKey
-            keyToIndexMapping[iKey] = i
+            indexToKeyMapping[batchStartIndex + i] = iKey
+            keyToIndexMapping[iKey] = batchStartIndex + i
         }
         lazyListScope.items(
             count = count,
@@ -123,22 +126,26 @@ internal class RealReorderableLazyListScope(
         ) { i ->
             with(
                 receiver = remember {
-                    val itemKey = indexToKeyMapping[i]!!
+                    val itemKey = indexToKeyMapping[batchStartIndex + i]!!
+                    val positionInParent = ItemPosition(batchStartIndex + i, itemKey)
                     RealReorderableLazyItemScope(
                         parentOrientation = orientation,
-                        positionInParent = ItemPosition(batchStartIndex + i, itemKey),
+                        positionInParent = positionInParent,
                         positionInBatch = ItemPosition(i, itemKey),
                         currentDraggingItemPositionInParent = {
                             state.draggingItemPosition
                         },
                         onReorderInput = { pid, offset ->
-                            state.childDragStartChannel.trySend(
-                                DragStart(pid, offset ?: Offset.Zero)
+                            state.childReorderStartChannel.trySend(
+                                ReorderDragStart(
+                                    pid,
+                                    offset ?: Offset.Zero,
+                                    positionInParent.index,
+                                    positionInParent.key
+                                )
                             )
                         },
-                        currentDraggingItemStartDelta = {
-                            state.draggingItemDelta
-                        }
+                        currentDraggingItemDelta = state::draggingItemDelta
                     )
                 }
             ) {
@@ -155,7 +162,7 @@ internal class RealReorderableLazyItemScope(
     private val positionInParent: ItemPosition,
     private val positionInBatch: ItemPosition,
     private val currentDraggingItemPositionInParent: @SnapshotRead () -> ItemPosition?,
-    private val currentDraggingItemStartDelta: @SnapshotRead () -> Offset,
+    private val currentDraggingItemDelta: @SnapshotRead () -> Offset,
     private val onReorderInput: (pointerId: PointerId, offset: Offset?) -> Unit,
 ) : ReorderableLazyItemScope {
 
@@ -189,6 +196,7 @@ internal class RealReorderableLazyItemScope(
                                         pointerId = firstDown.id,
                                         pointerType = firstDown.type
                                     ) { change, slopReached ->
+                                        Log.d("Reorderable","SlopReached=$slopReached")
                                         change.consume()
                                         slop = verticalOffset(slopReached)
                                     }
@@ -238,21 +246,28 @@ internal class RealReorderableLazyItemScope(
         )
     }
 
+    @SuppressLint("UnnecessaryComposedModifier")
     @SnapshotRead
     override fun Modifier.reorderingItemVisualModifiers(): Modifier {
-        return this.combineIf(info.dragging) {
-            Modifier
-                .zIndex(1f)
-                .graphicsLayer {
-                    when (parentOrientation) {
-                        Orientation.Horizontal -> {
-                            translationX = currentDraggingItemStartDelta().x
-                        }
-                        Orientation.Vertical -> {
-                            translationY = currentDraggingItemStartDelta().y
+        return composed {
+            combineIf(info.dragging) {
+                Modifier
+                    .zIndex(1f)
+                    .graphicsLayer {
+                        Log.d(
+                            "Reordering",
+                            "Modifier applied for ${info.key} ${info.dragging} ${currentDraggingItemDelta()}"
+                        )
+                        when (parentOrientation) {
+                            Orientation.Horizontal -> {
+                                translationX = currentDraggingItemDelta().x
+                            }
+                            Orientation.Vertical -> {
+                                translationY = currentDraggingItemDelta().y
+                            }
                         }
                     }
-                }
+            }
         }
     }
 }

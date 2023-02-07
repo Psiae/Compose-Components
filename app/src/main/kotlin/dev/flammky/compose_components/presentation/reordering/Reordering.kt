@@ -29,6 +29,7 @@ import dev.flammky.compose_components.presentation.theme.backgroundContentColorA
 internal fun Ordering(
     viewModel: ReorderingViewModel = viewModel()
 ) {
+    OrderingTestUsage(viewModel = viewModel)
 }
 
 @Composable
@@ -71,7 +72,10 @@ private fun OrderingTestUsage(
                         viewModel.cancelMoveTask()
                     }
                 },
-                movable = { _, _ -> true },
+                movable = { from, to ->
+                    Log.d("Reorderable_DEBUG_Case", "movable($from, $to)")
+                    true
+                },
                 onMove = move@ { from, to ->
                     Log.d("Reorderable", "onMove($from, $to)")
                     // allow smart-cast

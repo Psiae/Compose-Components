@@ -1,21 +1,11 @@
 package dev.flammky.compose_components.android.reorderable
 
 import androidx.compose.ui.geometry.Offset
+import dev.flammky.compose_components.core.LayoutPosition
+import dev.flammky.compose_components.core.LinearLayoutPosition
 import dev.flammky.compose_components.core.SnapshotRead
-import kotlinx.coroutines.channels.Channel
 
 abstract class ReorderableState <ItemInfo> internal constructor() {
-
-    //
-    // Promote accordingly
-    //
-
-    /**
-     * Coroutine Channel for reorderable childrens to report `drag-start` event to the layout handler
-     *
-     * @see [ReorderableLazyListApplier.pointerInputFilterModifier]
-     */
-    internal abstract val childDragStartChannel: Channel<DragStart>
 
     /**
      * The expected index of the currently dragging Item,
@@ -54,27 +44,35 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
         @SnapshotRead
         get
 
-    abstract val draggingItemLeftPos: Float
+    abstract val draggingItemLeftPos: Float?
         @SnapshotRead
         get
 
-    abstract val draggingItemTopPos: Float
+    abstract val draggingItemTopPos: Float?
         @SnapshotRead
         get
 
-    abstract val draggingItemRightPos: Float
+    abstract val draggingItemRightPos: Float?
         @SnapshotRead
         get
 
-    abstract val draggingItemBottomPos: Float
+    abstract val draggingItemBottomPos: Float?
         @SnapshotRead
         get
 
-    abstract val draggingItemStartPos: Float
+    abstract val draggingItemStartPos: Float?
         @SnapshotRead
         get
 
-    abstract val draggingItemEndPos: Float
+    abstract val draggingItemEndPos: Float?
+        @SnapshotRead
+        get
+
+    abstract val draggingItemLayoutPosition: LayoutPosition?
+        @SnapshotRead
+        get
+
+    abstract val draggingItemLayoutInfo: ItemInfo?
         @SnapshotRead
         get
 
@@ -154,6 +152,22 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
         get
 
     /**
+     * The End position of the Item relative to the Parent Layout Viewport,
+     * relative to orientation
+     */
+    protected abstract val ItemInfo.layoutPositionInParent: LayoutPosition
+        @SnapshotRead
+        get
+
+    /**
+     * The End position of the Item relative to the Parent Layout Viewport,
+     * relative to orientation
+     */
+    protected abstract val ItemInfo.linearLayoutPositionInParent: LinearLayoutPosition
+        @SnapshotRead
+        get
+
+    /**
      * The Height of the Item,
      */
     protected abstract val ItemInfo.height: Int
@@ -178,7 +192,13 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      * @param startX the `x` axis position of this drag (0 is left unless reversed)
      * @param startY the `y` axis position of this drag (0 is top unless reversed)
      */
-    internal abstract fun onStartDrag(id: Long, startX: Int, startY: Int, /*expectKey: Any*/): Boolean
+    internal abstract fun onStartDrag(
+        id: Long,
+        startX: Int,
+        startY: Int,
+        expectKey: Any,
+        expectIndex: Int
+    ): Boolean
 
     /**
      * onDrag event
@@ -191,7 +211,12 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      * @param dragX the `x` axis position of this drag (0 is left unless reversed)
      * @param dragY the `y` axis position of this drag (0 is top unless reversed)
      */
-    internal abstract fun onDrag(id: Long, dragX: Int, dragY: Int, /*expectKey: Any*/): Boolean
+    internal abstract fun onDrag(
+        id: Long,
+        dragX: Int,
+        dragY: Int,
+        expectKey: Any
+    ): Boolean
 
     /**
      * onDragEnd event
@@ -203,7 +228,12 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      * @param endX the `x` axis position of this drag (0 is left unless reversed)
      * @param endY the `y` axis position of this drag (0 is top unless reversed)
      */
-    internal abstract fun onDragEnd(id: Long, endX: Int, endY: Int, /*expectKey: Any*/)
+    internal abstract fun onDragEnd(
+        id: Long,
+        endX: Int,
+        endY: Int,
+        expectKey: Any
+    )
 
     /**
      * onDragCancelled event
@@ -215,5 +245,10 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      * @param endX the `x` axis position of this drag (0 is left unless reversed)
      * @param endY the `y` axis position of this drag (0 is top unless reversed)
      */
-    internal abstract fun onDragCancelled(id: Long, endX: Int, endY: Int, /*expectKey: Any*/)
+    internal abstract fun onDragCancelled(
+        id: Long,
+        endX: Int,
+        endY: Int,
+        expectKey: Any
+    )
 }

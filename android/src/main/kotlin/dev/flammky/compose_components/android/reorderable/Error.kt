@@ -1,27 +1,27 @@
 package dev.flammky.compose_components.android.reorderable
 
-internal fun internalReorderableError(msg: String): Nothing = error(
+internal inline fun internalReorderableError(msg: String): Nothing = error(
     """
-        InternalReorderableError, please send a bug report.
+        InternalReorderableError, please file a bug report with the stacktrace.
         msg=$msg
     """
 )
 
-internal fun publicReorderableError(msg: String): Nothing = error(
+internal inline fun publicReorderableError(msg: String): Nothing = error(
     """
         PublicReorderableError, please refer to usage documentation.
         msg=$msg
     """
 )
 
-internal fun internalReorderableStateCheck(
+internal inline fun internalReorderableStateCheck(
     state: Boolean,
     lazyMsg: () -> Any
 ) {
     if (!state) internalReorderableError(lazyMsg().toString())
 }
 
-internal fun publicReorderableStateCheck(
+internal inline fun publicReorderableStateCheck(
     state: Boolean,
     lazyMsg: () -> Any
 ) {

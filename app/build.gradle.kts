@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.flammky.compose_components.android"
+    namespace = "dev.flammky.compose_components"
     compileSdk = 33
 
     defaultConfig {
@@ -13,6 +13,21 @@ android {
         targetSdk = 33
         versionCode = 1
         versionName = "1.0"
+    }
+    signingConfigs {
+        create("release") {
+            storeFile = file("C://Users//Kyle//dev//Android Studio//key//testRelease-key.jks")
+            storePassword = "123456"
+            keyAlias = "key0"
+            keyPassword = "123456"
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isDebuggable = false
+        }
     }
     buildFeatures {
         compose = true
@@ -57,7 +72,7 @@ dependencies {
         api("androidx.compose.material:material:$vMaterial")
 
         // Material3
-        val vMaterial3 = "1.0.1"
+        val vMaterial3 = "1.1.0-alpha05"
         api("androidx.compose.material3:material3:$vMaterial3")
     }
 

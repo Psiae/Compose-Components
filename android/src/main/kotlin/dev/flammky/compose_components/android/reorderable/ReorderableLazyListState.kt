@@ -8,16 +8,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.util.fastFirstOrNull
 import androidx.compose.ui.util.fastForEach
-import dev.flammky.compose_components.android.reorderable.leech.ReorderableState
 import dev.flammky.compose_components.core.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import java.io.File
-import java.util.jar.Manifest
-import kotlin.math.pow
-import kotlin.math.sign
 
 class ReorderableLazyListState internal constructor(
     val coroutineScope: CoroutineScope,
@@ -33,20 +28,18 @@ class ReorderableLazyListState internal constructor(
 
     // TODO: we can wrap these into an independent instance
     private var _draggingId: Long? = null
-    private var _draggingItemSnapshot by mutableStateOf<LazyListItemInfo?>(null)
+    private var _draggingItemStartSnapshot by mutableStateOf<LazyListItemInfo?>(null)
+    private var _draggingItemLatestSnapshot by mutableStateOf<LazyListItemInfo?>(null)
     private var _expectDraggingItemCurrentIndex by mutableStateOf<Int?>(null)
-    private var _draggingItemDelta by mutableStateOf<Offset>(Offset.Zero)
+    private var _draggingItemStartOffset = Offset.Zero
+    private var _draggingItemDeltaFromStart by mutableStateOf(Offset.Zero)
+    private var _draggingItemDeltaFromCurrent by mutableStateOf(Offset.Zero)
     private var _draggingDropTarget: LazyListItemInfo? = null
 
     private var _autoScrollerJob: Job? = null
 
-    private val _draggingItemLayoutInfo: LazyListItemInfo?
-        get() = visibleItemsInfo.fastFirstOrNull { visibleItem ->
-            visibleItem.itemIndex == expectDraggingItemIndex
-        }
-
     internal val applier: ReorderableLazyListApplier = _applier
-    internal override val childDragStartChannel: Channel<DragStart> = Channel()
+    internal val childReorderStartChannel: Channel<ReorderDragStart> = Channel()
     internal override val scrollChannel: Channel<Float> = Channel()
 
     override val isVerticalScroll: Boolean =
@@ -68,69 +61,126 @@ class ReorderableLazyListState internal constructor(
 
     override val currentLayoutDraggingItemIndex: Int?
         @SnapshotRead
-        get() = _draggingItemSnapshot?.let {
+        get() = _draggingItemStartSnapshot?.let {
             _applier.indexOfKey(it.key).takeIf { i -> i != -1 }
         }
 
     override val draggingItemKey: Any?
         @SnapshotRead
-        get() = _draggingItemSnapshot?.itemKey
+        get() = _draggingItemStartSnapshot?.itemKey
 
     override val draggingItemPosition: ItemPosition?
         @SnapshotRead
-        get() = _draggingItemSnapshot
+        get() = _draggingItemStartSnapshot
             ?.let {
                 ItemPosition(expectDraggingItemIndex ?: return@let null, it.itemKey)
             }
 
     override val draggingItemDelta: Offset
         @SnapshotRead
-        get() = _draggingItemDelta
+        get() = _draggingItemStartSnapshot?.let { snap ->
+            visibleItemsInfo.fastFirstOrNull { visible ->
+                visible.key == snap.key
+            }?.let { inLayout ->
+                if (isVerticalScroll) {
+                    verticalOffset(snap.offset + _draggingItemDeltaFromStart.y - inLayout.offset)
+                } else if (isHorizontalScroll) {
+                    horizontalOffset(snap.offset + _draggingItemDeltaFromStart.x - inLayout.offset)
+                } else exhaustedStateException()
+            }
+        } ?: Offset.Zero
 
-    override val draggingItemLeftPos: Float
-        get() = _draggingItemSnapshot
+    override val draggingItemLeftPos: Float?
+        @SnapshotRead
+        get() = _draggingItemStartSnapshot
             ?.let { draggingItem ->
                 lazyListState.layoutInfo.visibleItemsInfo
                     .fastFirstOrNull {
                         it.key == draggingItem.key
                     }
-                    ?.run { leftPos + _draggingItemDelta.x }
-            } ?: 0f
+                    ?.run { leftPos + _draggingItemDeltaFromStart.x }
+            }
 
-    override val draggingItemTopPos: Float
-        get() = _draggingItemSnapshot
+    override val draggingItemTopPos: Float?
+        @SnapshotRead
+        get() = _draggingItemStartSnapshot
             ?.let { draggingItem ->
                 lazyListState.layoutInfo.visibleItemsInfo
                     .fastFirstOrNull {
                         it.key == draggingItem.key
                     }
-                    ?.run { topPos + _draggingItemDelta.y }
-            } ?: 0f
+                    ?.run { topPos + _draggingItemDeltaFromStart.y }
+            }
 
-    override val draggingItemRightPos: Float
-        get() = _draggingItemSnapshot
+    override val draggingItemRightPos: Float?
+        @SnapshotRead
+        get() = _draggingItemStartSnapshot
             ?.let { draggingItem ->
                 lazyListState.layoutInfo.visibleItemsInfo
                     .fastFirstOrNull {
                         it.key == draggingItem.key
                     }
-                    ?.run { rightPos + _draggingItemDelta.x }
-            } ?: 0f
+                    ?.run { rightPos + _draggingItemDeltaFromStart.x }
+            }
 
-    override val draggingItemBottomPos: Float
-        get() = _draggingItemSnapshot
+    override val draggingItemBottomPos: Float?
+        @SnapshotRead
+        get() = _draggingItemStartSnapshot
             ?.let { draggingItem ->
                 lazyListState.layoutInfo.visibleItemsInfo
                     .fastFirstOrNull {
                         it.key == draggingItem.key
                     }
-                    ?.run { bottomPos + _draggingItemDelta.y }
-            } ?: 0f
+                    ?.run { bottomPos + _draggingItemDeltaFromStart.y }
+            }
 
-    override val draggingItemStartPos: Float
+    override val draggingItemLayoutPosition: LayoutPosition?
+        @SnapshotRead
+        get() = _draggingItemStartSnapshot
+            ?.let { draggingItem ->
+                lazyListState.layoutInfo.visibleItemsInfo
+                    .fastFirstOrNull {
+                        it.key == draggingItem.key
+                    }
+                    ?.run {
+                        val delta = _draggingItemDeltaFromStart
+                        LayoutPosition(
+                            leftPos + delta.x,
+                            topPos + delta.y,
+                            rightPos + delta.x,
+                            bottomPos + delta.y,
+                        )
+                    }
+            }
+
+    override val draggingItemLayoutInfo: LazyListItemInfo?
+        @SnapshotRead
+        get() = _draggingItemStartSnapshot
+            ?.let { draggingItem ->
+                lazyListState.layoutInfo.visibleItemsInfo
+                    .fastFirstOrNull {  visibleItem ->
+                        visibleItem.key == draggingItem.key
+                    }
+            }
+
+    override val LazyListItemInfo.layoutPositionInParent: LayoutPosition
+        get() = LayoutPosition(
+            leftPos.toFloat(),
+            topPos.toFloat(),
+            rightPos.toFloat(),
+            bottomPos.toFloat(),
+        )
+
+    override val LazyListItemInfo.linearLayoutPositionInParent: LinearLayoutPosition
+        get() = LinearLayoutPosition(
+            startPos.toFloat(),
+            endPos.toFloat()
+        )
+
+    override val draggingItemStartPos: Float?
         get() = if (isVerticalScroll) draggingItemTopPos else draggingItemLeftPos
 
-    override val draggingItemEndPos: Float
+    override val draggingItemEndPos: Float?
         get() = if (isVerticalScroll) draggingItemBottomPos else draggingItemRightPos
 
     override val firstVisibleItemIndex: Int
@@ -238,20 +288,30 @@ class ReorderableLazyListState internal constructor(
     /**
      * @see ReorderableState.onStartDrag
      */
-    internal override fun onStartDrag(id: Long, startX: Int, startY: Int): Boolean {
+    internal override fun onStartDrag(
+        id: Long,
+        startX: Int,
+        startY: Int,
+        expectKey: Any,
+        expectIndex: Int
+    ): Boolean {
+        Log.d(
+            "Reorderable_DEBUG",
+            "onStartDrag(id=$id, startX=$startX, startY=$startY, expectKey=$expectKey, expectIndex=$expectIndex)"
+        )
         internalReorderableStateCheck(_draggingId == null) {
             "Unexpected Dragging ID during onStartDrag, " +
-                    "expect=$id, actual=$_draggingId, inMainLooper=${inMainLooper()}"
+                    "expect=${null}, actual=$_draggingId, inMainLooper=${inMainLooper()}"
         }
         val x: Int
         val y: Int
         // consider the viewport offset (Content Padding)
         if (isVerticalScroll) {
-            x = startX
+            x = 0
             y = viewportStartOffset + startY
         } else {
             x = viewportStartOffset + startX
-            y = startY
+            y = 0
         }
         // find the dragged Item according to the Drag input position
         return visibleItemsInfo
@@ -259,54 +319,75 @@ class ReorderableLazyListState internal constructor(
                 x in it.leftPos..it.rightPos && y in it.topPos..it.bottomPos
             }
             ?.takeIf { itemInfo ->
+                itemInfo.key == expectKey &&
+                itemInfo.index == expectIndex &&
                 onDragStart?.invoke(ItemPosition(itemInfo.itemIndex, itemInfo.itemKey)) != false
             }
             ?.let { itemInfo ->
-                _draggingItemSnapshot = itemInfo
                 _draggingId = id
+                _draggingItemStartSnapshot = itemInfo
+                _expectDraggingItemCurrentIndex = itemInfo.index
+                _draggingItemStartOffset = Offset(x.toFloat(), y.toFloat())
             } != null
     }
 
-    internal override fun onDrag(id: Long, dragX: Int, dragY: Int): Boolean {
+    internal override fun onDrag(
+        id: Long,
+        dragX: Int,
+        dragY: Int,
+        expectKey: Any
+    ): Boolean {
+        Log.d(
+            "Reorderable_DEBUG",
+            "onDrag(id=$id, drag=$dragX, dragY=$dragY, expectKey=$expectKey)"
+        )
         internalReorderableStateCheck(id == _draggingId) {
             "Unexpected Dragging ID during onDrag, " +
-                    "expect=$id, actual=$_draggingId, inMainLooper=${inMainLooper()}"
+                "expect=$id, actual=$_draggingId, inMainLooper=${inMainLooper()}"
         }
-        val selected = _draggingItemSnapshot
+        val snap = _draggingItemStartSnapshot
             ?: return false
-        visibleItemsInfo
-            .fastFirstOrNull {
-                it.itemKey == selected.itemKey
+        internalReorderableStateCheck(expectKey == snap.key) {
+            "Unexpected Item Key during onDrag, " +
+                    "expect=${expectKey}, actual=${snap.key}, inMainLooper=${inMainLooper()}"
+        }
+        val draggingInfo = lazyListState.layoutInfo.visibleItemsInfo
+            .fastFirstOrNull {  visibleItem ->
+                visibleItem.key == snap.key
             }
             ?: return false
         val dragDelta =
             if (isVerticalScroll) {
-                verticalOffset(_draggingItemDelta.y + dragY)
+                verticalOffset(_draggingItemDeltaFromStart.y + dragY)
             } else {
-                horizontalOffset(_draggingItemDelta.x + dragX)
+                horizontalOffset(_draggingItemDeltaFromStart.x + dragX)
             }.also {
-                _draggingItemDelta = it
+                _draggingItemDeltaFromStart = it
             }
-        findDropTarget(
+        val checkMoveAllow = checkShouldMoveToTarget(
             deltaX = dragDelta.x.toInt(),
             deltaY = dragDelta.y.toInt(),
-            selected = selected
-        )?.let { target ->
-            val moved = onMove(
-                ItemPosition(selected.index, selected.key),
-                ItemPosition(target.index, target.key)
-            )
-            if (!moved) return false
+            snap = snap,
+            draggingInfo = draggingInfo
+        )
+        if (!checkMoveAllow) {
+            return false
         }
-        checkOnDragOverscroll(selected, dragDelta)
+        val scrollAllow = checkOnDragOverscroll(
+            draggingInfo, dragDelta
+        )
+        if (!scrollAllow) {
+            return false
+        }
         return true
     }
 
     private fun checkOnDragOverscroll(
         draggingItemInfo: LazyListItemInfo,
         draggingDelta: Offset
-    ) {
+    ): Boolean {
         autoscroll(calculateOverscrollOffset(draggingItemInfo, draggingDelta))
+        return true
     }
 
     private fun calculateOverscrollOffset(
@@ -344,9 +425,9 @@ class ReorderableLazyListState internal constructor(
         frameTimeMillis: Long,
         maxScrollPx: Float,
     ): Float {
-        val (size: Int, outSize: Float) = _draggingItemSnapshot
+        val (size: Int, outSize: Float) = _draggingItemStartSnapshot
             ?.let { itemInfo ->
-                itemInfo.endPos - itemInfo.startPos to calculateOverscrollOffset(itemInfo, _draggingItemDelta)
+                itemInfo.endPos - itemInfo.startPos to calculateOverscrollOffset(itemInfo, _draggingItemDeltaFromStart)
             }
             ?: return 0f
         return interpolateAutoScrollOffset(size, outSize, frameTimeMillis, maxScrollPx)
@@ -390,53 +471,133 @@ class ReorderableLazyListState internal constructor(
         }
     }
 
-    internal override fun onDragEnd(id: Long, endX: Int, endY: Int) {
-        internalReorderableStateCheck(id == _draggingId) {
-            "Unexpected Dragging ID during onDragEnd, expect=$id, actual=$_draggingId, inMainLooper=${inMainLooper()}"
-        }
+    internal override fun onDragEnd(id: Long, endX: Int, endY: Int, expectKey: Any) {
+        Log.d(
+            "Reorderable_DEBUG",
+            "onDragEnd(id=$id, drag=$endX, dragY=$endY, expectKey=$expectKey)"
+        )
+        dragEnded(false, id, endX, endY, expectKey)
     }
 
-    internal override fun onDragCancelled(id: Long, endX: Int, endY: Int) {
-        internalReorderableStateCheck(id == _draggingId) {
-            "Inconsistent Dragging ID during onDragCancelled, expect=$id, actual=$_draggingId, inMainLooper=${inMainLooper()}"
-        }
+    internal override fun onDragCancelled(id: Long, endX: Int, endY: Int, expectKey: Any) {
+        Log.d(
+            "Reorderable_DEBUG",
+            "onDragCancelled(id=$id, drag=$endX, dragY=$endY, expectKey=$expectKey)"
+        )
+        dragEnded(true, id, endX, endY, expectKey)
     }
 
-    private fun findDropTarget(
+    private fun dragEnded(
+        cancelled: Boolean,
+        id: Long,
+        endX: Int,
+        endY: Int,
+        expectKey: Any
+    ) {
+        internalReorderableStateCheck(id == _draggingId) {
+            "Inconsistent Dragging ID during onDragCancelled, " +
+                    "expect=$id, actual=$_draggingId, inMainLooper=${inMainLooper()}"
+        }
+        internalReorderableStateCheck(expectKey == _draggingItemStartSnapshot?.key) {
+            "Unexpected Expect Key during onDragCancelled, " +
+                    "expect=$expectKey, actual=${_draggingItemStartSnapshot?.key}, inMainLooper=${inMainLooper()}"
+        }
+        val startSnap = _draggingItemStartSnapshot!!
+        this.onDragEnd?.invoke(
+            cancelled,
+            ItemPosition(startSnap.index, startSnap.key),
+            ItemPosition(expectDraggingItemIndex!!, startSnap.key)
+        )
+        _draggingId = null
+        _draggingItemStartSnapshot = null
+        _expectDraggingItemCurrentIndex = null
+        _draggingItemStartOffset = Offset.Zero
+        _draggingItemDeltaFromStart = Offset.Zero
+        _draggingDropTarget = null
+    }
+
+    private fun checkShouldMoveToTarget(
         deltaX: Int,
         deltaY: Int,
-        selected: LazyListItemInfo
-    ): LazyListItemInfo? {
+        snap: LazyListItemInfo,
+        draggingInfo: LazyListItemInfo
+    ): Boolean {
+        Log.d(
+            "Reorderable_DEBUG",
+            "checkShouldMoveToTarget(deltaX=$deltaX, deltaY=$deltaY)"
+        )
+        if (deltaX == 0 && deltaY == 0) {
+            return true
+        }
         _draggingDropTarget = null
         // target properties
-        val targetLeftPos = selected.leftPos + deltaX
-        val targetTopPos = selected.topPos + deltaY
-        val targetRightPos = selected.rightPos + deltaX
-        val targetBottomPos = selected.bottomPos + deltaY
+        val draggingLeftPos: Int
+        val draggingTopPos: Int
+        val draggingRightPos: Int
+        val draggingBottomPos: Int
+        val draggingStartPos: Int
+        val draggingEndPos: Int
+        val draggingCenterPos: Int
+        if (isVerticalScroll) {
+            draggingLeftPos = 0
+            draggingTopPos = snap.topPos + deltaY
+            draggingRightPos = 0
+            draggingBottomPos = snap.bottomPos + deltaY
+            draggingStartPos = draggingTopPos
+            draggingEndPos = draggingBottomPos
+            draggingCenterPos = (draggingStartPos + draggingEndPos) / 2
+        } else if (isHorizontalScroll) {
+            draggingLeftPos = snap.leftPos + deltaX
+            draggingTopPos = 0
+            draggingRightPos = snap.rightPos + deltaX
+            draggingBottomPos = 0
+            draggingStartPos = draggingLeftPos
+            draggingEndPos = draggingRightPos
+            draggingCenterPos = (draggingStartPos + draggingEndPos) / 2
+        } else exhaustedStateException()
+
+        var next: Boolean? = null
         run {
             // we can improve this
             visibleItemsInfo.fastForEach { visibleItem ->
+                if (visibleItem.itemIndex == draggingInfo.itemIndex) {
+                    return@fastForEach
+                }
+                val visibleItemPosition = visibleItem.linearLayoutPositionInParent
                 if (
-                    visibleItem.itemIndex == selected.itemIndex ||
-                    visibleItem.leftPos > targetRightPos ||
-                    visibleItem.topPos > targetBottomPos ||
-                    visibleItem.rightPos < targetLeftPos ||
-                    visibleItem.bottomPos < targetTopPos
+                    draggingStartPos > visibleItemPosition.end ||
+                    draggingEndPos < visibleItemPosition.start
                 ) {
                     return@fastForEach
                 }
                 if (
                     movable?.invoke(
-                        ItemPosition(selected.index, selected.key),
+                        ItemPosition(draggingInfo.index, draggingInfo.key),
                         ItemPosition(visibleItem.index, visibleItem.key)
-                    ) == true
+                    ) != false
                 ) {
-                    _draggingDropTarget = selected
+                    _draggingDropTarget = visibleItem
+                    next = visibleItem.index > draggingInfo.index
                 }
                 return@run
             }
         }
-        return _draggingDropTarget
+        _draggingDropTarget?.takeIf { target ->
+            val targetCenterPos = (target.startPos + target.endPos) / 2
+            Log.d(
+                "Reorderable_DEBUG",
+                "checkShouldMoveToTarget(deltaX=$deltaX, deltaY=$deltaY), dropTarget takeIf $target $next $targetCenterPos $draggingCenterPos"
+            )
+            if (next!!) draggingCenterPos > targetCenterPos else draggingCenterPos < targetCenterPos
+        }?.let { target ->
+            val moved = onMove(
+                ItemPosition(draggingInfo.index, draggingInfo.key),
+                ItemPosition(target.index, target.key)
+            )
+            if (!moved) return false
+            _expectDraggingItemCurrentIndex = target.index
+        }
+        return true
     }
 }
 

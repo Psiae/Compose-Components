@@ -12,7 +12,6 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerId
-import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import dev.flammky.compose_components.core.*
@@ -84,22 +83,15 @@ interface ReorderableLazyItemScope {
     }
 }
 
-internal class RealReorderableLazyListScope(
-    private val state: ReorderableLazyListState,
-    private val lazyListScope: LazyListScope
-) : ReorderableLazyListScope {
+internal class RealReorderableLazyListScope() : ReorderableLazyListScope {
 
-    private val indexToKeyMapping = mutableMapOf<Int, Any>()
-    private val keyToIndexMapping = mutableMapOf<Any, Int>()
-
+    private val _indexToKeyMapping = mutableMapOf<Int, Any>()
+    private val _indexToItemMapping = mutableMapOf<Int, ReorderableLazyListItem>()
+    private val _keyToIndexMapping = mutableMapOf<Any, Int>()
+    private val _intervals = mutableListOf<ReorderableLazyItemInterval>()
     private var itemsLastIndex = 0
 
-    private val orientation =
-        if (state.isVerticalScroll)
-            Orientation.Vertical
-        else if (state.isHorizontalScroll)
-            Orientation.Horizontal
-        else exhaustedStateException()
+    val intervals: List<ReorderableLazyItemInterval> = _intervals
 
     override fun item(
         key: Any,
@@ -113,48 +105,37 @@ internal class RealReorderableLazyListScope(
         key: (Int) -> Any,
         content: @Composable ReorderableLazyItemScope.(Int) -> Unit
     ) {
-        val batchStartIndex = itemsLastIndex
+        val intervalStartIndex = itemsLastIndex
         itemsLastIndex += count
+        val interval = ReorderableLazyItemInterval(
+            items = mutableListOf<ReorderableLazyListItem>()
+                .apply {
+                    repeat(count) { i ->
+                        val iKey = key(i)
+                        val item = ReorderableLazyListItem(
+                            i,
+                            intervalStartIndex + i,
+                            iKey,
+                            null,
+                            content
+                        )
+                        _indexToKeyMapping[intervalStartIndex + i] = iKey
+                        _indexToItemMapping[intervalStartIndex + i] = item
+                        _keyToIndexMapping[iKey] = intervalStartIndex + i
+                        add(item)
+                    }
+                }
+        )
+        _intervals.add(interval)
         repeat(count) { i ->
             val iKey = key(i)
-            indexToKeyMapping[batchStartIndex + i] = iKey
-            keyToIndexMapping[iKey] = batchStartIndex + i
-        }
-        lazyListScope.items(
-            count = count,
-            key = key,
-        ) { i ->
-            with(
-                receiver = remember {
-                    val itemKey = indexToKeyMapping[batchStartIndex + i]!!
-                    val positionInParent = ItemPosition(batchStartIndex + i, itemKey)
-                    RealReorderableLazyItemScope(
-                        parentOrientation = orientation,
-                        positionInParent = positionInParent,
-                        positionInBatch = ItemPosition(i, itemKey),
-                        currentDraggingItemPositionInParent = {
-                            state.draggingItemPosition
-                        },
-                        onReorderInput = { pid, offset ->
-                            state.childReorderStartChannel.trySend(
-                                ReorderDragStart(
-                                    pid,
-                                    offset ?: Offset.Zero,
-                                    positionInParent.index,
-                                    positionInParent.key
-                                )
-                            )
-                        },
-                        currentDraggingItemDelta = state::draggingItemDelta
-                    )
-                }
-            ) {
-                content(i)
-            }
+            _indexToKeyMapping[intervalStartIndex + i] = iKey
+            _keyToIndexMapping[iKey] = intervalStartIndex + i
         }
     }
 
-    fun indexOfKey(key: Any): Int = keyToIndexMapping.getOrElse(key) { -1 }
+    fun indexOfKey(key: Any): Int = _keyToIndexMapping.getOrElse(key) { -1 }
+    fun itemOfIndex(index: Int): ReorderableLazyListItem? = _indexToItemMapping.getOrElse(index) { null }
 }
 
 internal class RealReorderableLazyItemScope(
@@ -164,6 +145,7 @@ internal class RealReorderableLazyItemScope(
     private val currentDraggingItemPositionInParent: @SnapshotRead () -> ItemPosition?,
     private val currentDraggingItemDelta: @SnapshotRead () -> Offset,
     private val onReorderInput: (pointerId: PointerId, offset: Offset?) -> Unit,
+    val content: @Composable ReorderableLazyItemScope.(index: Int) -> Unit
 ) : ReorderableLazyItemScope {
 
     // TODO: Make things as lazy as possible
@@ -181,7 +163,7 @@ internal class RealReorderableLazyItemScope(
     override fun Modifier.reorderInput(): Modifier {
         return this.then(
             // install suspending pointer input filter to the composable
-            Modifier.pointerInput(Unit) {
+            Modifier.pointerInput(this@RealReorderableLazyItemScope) {
                 // for each possible gesture, install handle
                 forEachGesture {
                     // put pointer filter
@@ -196,7 +178,6 @@ internal class RealReorderableLazyItemScope(
                                         pointerId = firstDown.id,
                                         pointerType = firstDown.type
                                     ) { change, slopReached ->
-                                        Log.d("Reorderable","SlopReached=$slopReached")
                                         change.consume()
                                         slop = verticalOffset(slopReached)
                                     }
@@ -226,7 +207,7 @@ internal class RealReorderableLazyItemScope(
     override fun Modifier.reorderLongInput(timeMs: Long?): Modifier {
         return this.then(
             // install pointer-input filter to the composable
-            Modifier.pointerInput(Unit) {
+            Modifier.pointerInput(this@RealReorderableLazyItemScope) {
                 // for each new gesture, install handle
                 forEachGesture {
                     // put pointerEvent filter
@@ -246,33 +227,33 @@ internal class RealReorderableLazyItemScope(
         )
     }
 
-    @SuppressLint("UnnecessaryComposedModifier")
     @SnapshotRead
     override fun Modifier.reorderingItemVisualModifiers(): Modifier {
-        return composed {
-            combineIf(info.dragging) {
-                Modifier
-                    .zIndex(1f)
-                    .graphicsLayer {
-                        Log.d(
-                            "Reordering",
-                            "Modifier applied for ${info.key} ${info.dragging} ${currentDraggingItemDelta()}"
-                        )
-                        when (parentOrientation) {
-                            Orientation.Horizontal -> {
-                                translationX = currentDraggingItemDelta().x
-                            }
-                            Orientation.Vertical -> {
-                                translationY = currentDraggingItemDelta().y
-                            }
+        return combineIf(info.dragging) {
+            Modifier
+                .zIndex(1f)
+                .graphicsLayer {
+                    when (parentOrientation) {
+                        Orientation.Horizontal -> {
+                            translationX = currentDraggingItemDelta().x
+                        }
+                        Orientation.Vertical -> {
+                            translationY = currentDraggingItemDelta().y
                         }
                     }
-            }
+                }
         }
     }
 }
 
-private data class ReorderStartInput(
-    val change: PointerInputChange,
-    val slop: Offset
+internal class ReorderableLazyItemInterval(
+    val items: List<ReorderableLazyListItem>
+)
+
+internal class ReorderableLazyListItem(
+    val indexInInterval: Int,
+    val indexInParent: Int,
+    val key: Any,
+    val type: Any?,
+    val content: @Composable ReorderableLazyItemScope.(index: Int) -> Unit
 )

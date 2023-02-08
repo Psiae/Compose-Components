@@ -20,6 +20,7 @@ class ReorderableLazyListState internal constructor(
     private val onDragStart: ((item: ItemPosition) -> Boolean)?,
     // should provide `cancelled` reason
     private val onDragEnd: ((cancelled: Boolean, from: ItemPosition, to: ItemPosition) -> Unit)?,
+    // should we handle the listing ?
     private val movable: ((from: ItemPosition, to: ItemPosition) -> Boolean)?,
     private val onMove: ((from: ItemPosition, to: ItemPosition) -> Boolean),
 ) : ReorderableScrollableState<LazyListItemInfo>() {
@@ -319,6 +320,10 @@ class ReorderableLazyListState internal constructor(
                 x in it.leftPos..it.rightPos && y in it.topPos..it.bottomPos
             }
             ?.takeIf { itemInfo ->
+                Log.d(
+                    "Reorderable_DEBUG",
+                    "onStartDrag(id=$id, startX=$startX, startY=$startY, expectKey=$expectKey, expectIndex=$expectIndex) takeIf ${itemInfo.index} ${itemInfo.key}"
+                )
                 itemInfo.key == expectKey &&
                 itemInfo.index == expectIndex &&
                 onDragStart?.invoke(ItemPosition(itemInfo.itemIndex, itemInfo.itemKey)) != false
@@ -572,14 +577,16 @@ class ReorderableLazyListState internal constructor(
                 }
                 if (
                     movable?.invoke(
-                        ItemPosition(draggingInfo.index, draggingInfo.key),
+                        ItemPosition(expectDraggingItemIndex!!, draggingInfo.key),
                         ItemPosition(visibleItem.index, visibleItem.key)
                     ) != false
                 ) {
                     _draggingDropTarget = visibleItem
-                    next = visibleItem.index > draggingInfo.index
+                    next = visibleItem.index > expectDraggingItemIndex!!
                 }
-                return@run
+                if (visibleItem.itemIndex > expectDraggingItemIndex!!) {
+                    return@run
+                }
             }
         }
         _draggingDropTarget?.takeIf { target ->

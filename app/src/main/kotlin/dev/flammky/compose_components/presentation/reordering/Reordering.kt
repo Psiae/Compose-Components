@@ -77,7 +77,7 @@ private fun OrderingTestUsage(
                     true
                 },
                 onMove = move@ { from, to ->
-                    Log.d("Reorderable", "onMove($from, $to)")
+                    Log.d("Reorderable_DEBUG_Case", "onMove($from, $to)")
                     // allow smart-cast
                     val fromKey = from.key
                     val toKey = to.key
@@ -150,7 +150,7 @@ private fun ReorderableLazyItemScope.TestTaskItemLayout(
             Text(
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
-                text = item.itemID.toString(),
+                text = item.itemID.toString() + " [${info.indexInParent}] ",
                 color = Theme.backgroundContentColorAsState().value
             )
         }

@@ -96,6 +96,8 @@ private class RealPlaybackController() : PlaybackController {
         return _supervisorScope.async(_dispatcher) {
             if (_queue.queueID != expectQueueID ||
                 _queue.tracksMod != expectTracksMod ||
+                expectFromIndex == expectToIndex ||
+                expectFromId == expectToId ||
                 _queue.tracks.lastIndex < expectToIndex ||
                 _queue.tracks.getOrNull(expectFromIndex)?.itemID != expectFromId ||
                 _queue.tracks.getOrNull(expectToIndex)?.itemID != expectToId

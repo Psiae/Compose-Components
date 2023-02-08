@@ -1,18 +1,22 @@
 package dev.flammky.compose_components.android.reorderable
 
+import android.util.Log
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.forEachGesture
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.util.fastFirstOrNull
+import androidx.compose.ui.util.fastForEach
 import dev.flammky.compose_components.core.SnapshotRead
 import dev.flammky.compose_components.core.SnapshotReader
+import dev.flammky.compose_components.core.exhaustedStateException
 import kotlinx.coroutines.CancellationException
 
 internal interface ReorderableLazyListApplier {
@@ -66,7 +70,9 @@ internal class RealReorderableLazyListApplier(
                                 firstDown.position.y.toInt(),
                                 expectKey = dragStart.selfKey,
                                 expectIndex = dragStart.selfIndex
-                            )
+                            ).also {
+                                Log.d("Reorderable_DEBUG", "onStartDrag=$it")
+                            }
                         }?.let { _ ->
                             val lastDragId: PointerId = dragStart.id
                             var lastDragX: Int = dragStart.offset.x.toInt()
@@ -119,10 +125,55 @@ internal class RealReorderableLazyListApplier(
         lazyListScope: LazyListScope,
         content: @SnapshotReader ReorderableLazyListScope.() -> Unit
     ) {
-        _currentComposition = RealReorderableLazyListScope(
-            state = state,
-            lazyListScope = lazyListScope
-        ).apply(content)
+        val scope = RealReorderableLazyListScope().apply(content)
+        _currentComposition = scope
+
+        // TODO: think of a name then create the class
+        scope.intervals.fastForEach { interval ->
+            lazyListScope.items(
+                count = interval.items.size,
+                key = { i -> interval.items[i].key },
+            ) { i ->
+                val composition = _currentComposition
+                    ?: return@items
+                with(
+                    receiver = remember<RealReorderableLazyItemScope?>(composition) {
+                        val item = composition.itemOfIndex(i)
+                            ?: return@remember null
+                        val itemIndexInParent = composition.indexOfKey(item.key)
+                            .takeIf { it >= 0 && it == i }
+                            ?: return@remember null
+                        val positionInParent = ItemPosition(itemIndexInParent, item.key)
+                        RealReorderableLazyItemScope(
+                            parentOrientation = if (state.isVerticalScroll)
+                                Orientation.Vertical
+                            else if (state.isHorizontalScroll)
+                                Orientation.Horizontal
+                            else exhaustedStateException(),
+                            positionInParent = positionInParent,
+                            positionInBatch = ItemPosition(item.indexInInterval, item.key),
+                            currentDraggingItemPositionInParent = {
+                                state.draggingItemPosition
+                            },
+                            onReorderInput = { pid, offset ->
+                                state.childReorderStartChannel.trySend(
+                                    ReorderDragStart(
+                                        pid,
+                                        offset ?: Offset.Zero,
+                                        positionInParent.index,
+                                        positionInParent.key
+                                    )
+                                )
+                            },
+                            currentDraggingItemDelta = state::draggingItemDelta,
+                            content = item.content
+                        )
+                    } ?: return@items
+                ) {
+                    content(i)
+                }
+            }
+        }
     }
 
     @SnapshotRead

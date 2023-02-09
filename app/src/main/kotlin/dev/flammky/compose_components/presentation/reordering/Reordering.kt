@@ -3,8 +3,10 @@ package dev.flammky.compose_components.presentation.reordering
 import android.os.Parcel
 import android.os.Parcelable
 import android.util.Log
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,6 +17,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.flammky.compose_components.R
 import dev.flammky.compose_components.android.reorderable.ItemPosition
@@ -23,7 +26,9 @@ import dev.flammky.compose_components.android.reorderable.ReorderableLazyItemSco
 import dev.flammky.compose_components.android.reorderable.rememberReorderableLazyListState
 import dev.flammky.compose_components.core.NoInline
 import dev.flammky.compose_components.presentation.theme.Theme
+import dev.flammky.compose_components.presentation.theme.backgroundColorAsState
 import dev.flammky.compose_components.presentation.theme.backgroundContentColorAsState
+import dev.flammky.compose_components.presentation.theme.surfaceVariantColorAsState
 
 @Composable
 internal fun Ordering(
@@ -121,41 +126,55 @@ private fun OrderingTestUsage(
 private fun ReorderableLazyItemScope.TestTaskItemLayout(
     item: TrackQueueItem
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(60.dp)
-            .reorderingItemVisualModifiers(),
-        verticalAlignment = Alignment.CenterVertically,
+            .zIndex(if (info.dragging) 1f else 0f)
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .fillMaxHeight()
-                .width(24.dp)
-                .reorderInput(),
-            contentAlignment = Alignment.Center
+                .height(60.dp)
+                .fillMaxWidth()
+                .reorderingItemVisualModifiers()
+                .background(Theme.backgroundColorAsState().value),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                modifier = Modifier.size(24.dp),
-                painter = painterResource(id = R.drawable.drag_handle_fill0_wght400_grad0_opsz48),
-                contentDescription = "drag_handle",
-                tint = Theme.backgroundContentColorAsState().value
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(24.dp)
+                    .reorderInput(),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    modifier = Modifier.size(24.dp),
+                    painter = painterResource(id = R.drawable.drag_handle_fill0_wght400_grad0_opsz48),
+                    contentDescription = "drag_handle",
+                    tint = Theme.backgroundContentColorAsState().value
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    text = item.itemID.toString() + " [${info.indexInParent}] ",
+                    color = Theme.backgroundContentColorAsState().value
+                )
+            }
         }
-        Box(
+        Divider(
             modifier = Modifier
-                .fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-                text = item.itemID.toString() + " [${info.indexInParent}] ",
-                color = Theme.backgroundContentColorAsState().value
-            )
-        }
+                .fillMaxWidth(0.95f)
+                .align(Alignment.CenterHorizontally),
+            color = Theme.surfaceVariantColorAsState().value
+        )
     }
 }
+
 
 internal data class QueueItemPositionKey(
     val qID: String,

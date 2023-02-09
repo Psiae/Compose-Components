@@ -1,22 +1,23 @@
 package dev.flammky.compose_components.android.reorderable
 
-import android.annotation.SuppressLint
 import android.util.Log
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.forEachGesture
-import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
-import dev.flammky.compose_components.core.*
-import dev.flammky.compose_components.core.horizontalOffset
-import dev.flammky.compose_components.core.verticalOffset
+import dev.flammky.compose_components.core.SnapshotRead
+import dev.flammky.compose_components.core.exhaustedStateException
 
 interface ReorderableLazyListScope {
 
@@ -34,10 +35,17 @@ interface ReorderableLazyListScope {
     )
 }
 
+internal interface InternalReorderableLazyListScope : ReorderableLazyListScope {
+
+    val state: ReorderableLazyListState
+    fun indexOfKey(key: Any): Int
+    fun itemOfIndex(index: Int): ReorderableLazyListItem?
+}
+
 /**
  * Interface Scope of an Reorderable Lazy Item
  */
-interface ReorderableLazyItemScope {
+interface ReorderableLazyItemScope : LazyItemScope {
 
     /**
      * Info about the item
@@ -76,14 +84,56 @@ interface ReorderableLazyItemScope {
     interface ItemInfo {
         val dragging: Boolean
             @SnapshotRead get
-
+        val cancelling: Boolean
+            @SnapshotRead get
         val key: Any
         val indexInParent: Int
         val indexInBatch: Int
     }
 }
 
-internal class RealReorderableLazyListScope() : ReorderableLazyListScope {
+internal interface InternalReorderableLazyItemScope : ReorderableLazyItemScope {
+    @Composable
+    fun ComposeContent()
+}
+
+@Composable
+internal fun LazyItemScope.rememberInternalReorderableLazyItemScope(
+    composition: InternalReorderableLazyListScope,
+    index: Int,
+): InternalReorderableLazyItemScope {
+    return remember(composition, index) {
+        val compositionItem = composition.itemOfIndex(index)
+            ?: internalReorderableError("Missing Index=$index in composition")
+        RealReorderableLazyItemScope(
+            base = this,
+            parentOrientation = if (composition.state.isVerticalScroll)
+                Orientation.Vertical
+            else if (composition.state.isHorizontalScroll)
+                Orientation.Horizontal
+            else exhaustedStateException(),
+            positionInParent = ItemPosition(compositionItem.indexInParent, compositionItem.key),
+            positionInBatch = ItemPosition(compositionItem.indexInInterval, compositionItem.key),
+            currentDraggingItemDelta = composition.state::draggingItemDelta,
+            currentDraggingItemPositionInParent = composition.state::draggingItemPosition,
+            currentCancellingItemDelta = composition.state::cancellingItemDelta,
+            currentCancellingItemPositionInParent = composition.state::cancellingItemPosition,
+            onReorderInput = { pid, offset ->
+                Log.d(
+                    "Reorderable_DEBUG",
+                    "onReorderInput trySend $pid $offset)"
+                )
+                composition.state.childReorderStartChannel
+                    .trySend(ReorderDragStart(pid, offset, compositionItem.indexInParent, compositionItem.key))
+            },
+            content = compositionItem.content
+        )
+    }
+}
+
+internal class RealReorderableLazyListScope(
+    override val state: ReorderableLazyListState,
+) : InternalReorderableLazyListScope {
 
     private val _indexToKeyMapping = mutableMapOf<Int, Any>()
     private val _indexToItemMapping = mutableMapOf<Int, ReorderableLazyListItem>()
@@ -134,30 +184,60 @@ internal class RealReorderableLazyListScope() : ReorderableLazyListScope {
         }
     }
 
-    fun indexOfKey(key: Any): Int = _keyToIndexMapping.getOrElse(key) { -1 }
-    fun itemOfIndex(index: Int): ReorderableLazyListItem? = _indexToItemMapping.getOrElse(index) { null }
+    override fun indexOfKey(key: Any): Int = _keyToIndexMapping.getOrElse(key) { -1 }
+    override fun itemOfIndex(index: Int): ReorderableLazyListItem? = _indexToItemMapping.getOrElse(index) { null }
 }
 
 internal class RealReorderableLazyItemScope(
+    private val base: LazyItemScope,
     private val parentOrientation: Orientation,
     private val positionInParent: ItemPosition,
     private val positionInBatch: ItemPosition,
     private val currentDraggingItemPositionInParent: @SnapshotRead () -> ItemPosition?,
     private val currentDraggingItemDelta: @SnapshotRead () -> Offset,
-    private val onReorderInput: (pointerId: PointerId, offset: Offset?) -> Unit,
-    val content: @Composable ReorderableLazyItemScope.(index: Int) -> Unit
-) : ReorderableLazyItemScope {
+    private val currentCancellingItemPositionInParent: @SnapshotRead () -> ItemPosition?,
+    private val currentCancellingItemDelta: @SnapshotRead () -> Offset,
+    private val onReorderInput: (pointerId: PointerId, offset: Offset) -> Unit,
+    private val content: @Composable ReorderableLazyItemScope.(Int) -> Unit
+) : InternalReorderableLazyItemScope {
 
     // TODO: Make things as lazy as possible
     override val info = object : ReorderableLazyItemScope.ItemInfo {
-
         override val dragging: Boolean by derivedStateOf(policy = structuralEqualityPolicy()) {
             currentDraggingItemPositionInParent()?.takeIf { it.key == key } != null
         }
-
+        override val cancelling: Boolean by derivedStateOf(policy = structuralEqualityPolicy()) {
+            currentCancellingItemPositionInParent()?.takeIf { it.key == key } != null
+        }
         override val key: Any = positionInParent.key
         override val indexInParent: Int = positionInParent.index
         override val indexInBatch: Int = positionInBatch.index
+    }
+
+    @ExperimentalFoundationApi
+    override fun Modifier.animateItemPlacement(animationSpec: FiniteAnimationSpec<IntOffset>): Modifier {
+        return with(base) {
+            then(animateItemPlacement(animationSpec))
+        }
+
+    }
+
+    override fun Modifier.fillParentMaxHeight(fraction: Float): Modifier {
+        return with(base) {
+            then(fillParentMaxHeight(fraction))
+        }
+    }
+
+    override fun Modifier.fillParentMaxSize(fraction: Float): Modifier {
+        return with(base) {
+            then(fillMaxSize(fraction))
+        }
+    }
+
+    override fun Modifier.fillParentMaxWidth(fraction: Float): Modifier {
+        return with(base) {
+            then(fillParentMaxWidth(fraction))
+        }
     }
 
     override fun Modifier.reorderInput(): Modifier {
@@ -171,31 +251,29 @@ internal class RealReorderableLazyItemScope(
                         // await first down / press
                         awaitFirstDown().let { firstDown ->
                             // await for pointer slop (a distance in pixel before a gesture is considered a movement)
-                            var slop = Offset.Zero
                             val awaitSlop = when (parentOrientation) {
                                 Orientation.Vertical -> {
                                     awaitVerticalPointerSlopOrCancellation(
                                         pointerId = firstDown.id,
                                         pointerType = firstDown.type
-                                    ) { change, slopReached ->
+                                    ) { change, _ ->
                                         change.consume()
-                                        slop = verticalOffset(slopReached)
                                     }
                                 }
                                 Orientation.Horizontal -> {
                                     awaitHorizontalPointerSlopOrCancellation(
                                         pointerId = firstDown.id,
                                         pointerType = firstDown.type
-                                    ) { change, slopReached ->
+                                    ) { change, _ ->
                                         change.consume()
-                                        slop = horizontalOffset(slopReached)
                                     }
                                 }
-                                else -> notImplementedError()
+                                else -> exhaustedStateException()
                             }
                             if (awaitSlop != null) {
+                                check(awaitSlop.id == firstDown.id)
                                 // if the slop is reached from the down event then it's a Drag Start
-                                onReorderInput(firstDown.id, slop)
+                                onReorderInput(awaitSlop.id, awaitSlop.position - firstDown.position)
                             }
                         }
                     }
@@ -218,7 +296,7 @@ internal class RealReorderableLazyItemScope(
                                 // await the down event for the specified time
                                 if (awaitLongPressOrCancellation(firstDown.id, timeMs) != null) {
                                     // was pressed long enough without interruption then it's a Drag Start
-                                    onReorderInput(firstDown.id, null)
+                                    onReorderInput(firstDown.id, Offset.Zero)
                                 }
                             }
                     }
@@ -227,9 +305,10 @@ internal class RealReorderableLazyItemScope(
         )
     }
 
+    @OptIn(ExperimentalFoundationApi::class)
     @SnapshotRead
     override fun Modifier.reorderingItemVisualModifiers(): Modifier {
-        return combineIf(info.dragging) {
+        val other = if (info.dragging) {
             Modifier
                 .zIndex(1f)
                 .graphicsLayer {
@@ -242,8 +321,27 @@ internal class RealReorderableLazyItemScope(
                         }
                     }
                 }
+        } else if (info.cancelling) {
+            Modifier
+                .zIndex(1f)
+                .graphicsLayer {
+                    when (parentOrientation) {
+                        Orientation.Horizontal -> {
+                            translationX = currentCancellingItemDelta().x
+                        }
+                        Orientation.Vertical -> {
+                            translationY = currentCancellingItemDelta().y
+                        }
+                    }
+                }
+        } else {
+            Modifier.animateItemPlacement()
         }
+        return this then other
     }
+
+    @Composable
+    override fun ComposeContent() = content(positionInParent.index)
 }
 
 internal class ReorderableLazyItemInterval(

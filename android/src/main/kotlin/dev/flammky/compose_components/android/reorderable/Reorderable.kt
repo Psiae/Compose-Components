@@ -5,7 +5,7 @@ import androidx.compose.ui.input.pointer.PointerId
 
 data class ReorderDragStart(
     val id: PointerId,
-    val offset: Offset = Offset.Zero,
+    val slop: Offset,
     val selfIndex: Int,
     val selfKey: Any
 )

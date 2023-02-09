@@ -76,6 +76,14 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
         @SnapshotRead
         get
 
+    abstract val cancellingItemPosition: ItemPosition?
+        @SnapshotRead
+        get
+
+    abstract val cancellingItemDelta: Offset
+        @SnapshotRead
+        get
+
     protected abstract val firstVisibleItemIndex: Int
         @SnapshotRead
         get
@@ -194,8 +202,8 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      */
     internal abstract fun onStartDrag(
         id: Long,
-        startX: Int,
-        startY: Int,
+        startX: Float,
+        startY: Float,
         expectKey: Any,
         expectIndex: Int
     ): Boolean
@@ -213,8 +221,8 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      */
     internal abstract fun onDrag(
         id: Long,
-        dragX: Int,
-        dragY: Int,
+        dragX: Float,
+        dragY: Float,
         expectKey: Any
     ): Boolean
 
@@ -230,8 +238,8 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      */
     internal abstract fun onDragEnd(
         id: Long,
-        endX: Int,
-        endY: Int,
+        endX: Float,
+        endY: Float,
         expectKey: Any
     )
 
@@ -247,8 +255,8 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      */
     internal abstract fun onDragCancelled(
         id: Long,
-        endX: Int,
-        endY: Int,
+        endX: Float,
+        endY: Float,
         expectKey: Any
     )
 }

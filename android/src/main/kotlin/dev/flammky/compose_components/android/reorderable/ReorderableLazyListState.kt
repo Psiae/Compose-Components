@@ -1,6 +1,9 @@
 package dev.flammky.compose_components.android.reorderable
 
 import android.util.Log
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
@@ -23,6 +26,7 @@ class ReorderableLazyListState internal constructor(
     // should we handle the listing ?
     private val movable: ((from: ItemPosition, to: ItemPosition) -> Boolean)?,
     private val onMove: ((from: ItemPosition, to: ItemPosition) -> Boolean),
+    private val dragCancelAnimation: DragCancelAnimation
 ) : ReorderableScrollableState<LazyListItemInfo>() {
 
     private val _applier = RealReorderableLazyListApplier(this)
@@ -164,6 +168,14 @@ class ReorderableLazyListState internal constructor(
                     }
             }
 
+    override val cancellingItemDelta: Offset
+        @SnapshotRead
+        get() = dragCancelAnimation.animatedOffset
+
+    override val cancellingItemPosition: ItemPosition?
+        @SnapshotRead
+        get() = dragCancelAnimation.cancellingItemPosition
+
     override val LazyListItemInfo.layoutPositionInParent: LayoutPosition
         get() = LayoutPosition(
             leftPos.toFloat(),
@@ -291,39 +303,31 @@ class ReorderableLazyListState internal constructor(
      */
     internal override fun onStartDrag(
         id: Long,
-        startX: Int,
-        startY: Int,
+        startX: Float,
+        startY: Float,
         expectKey: Any,
         expectIndex: Int
     ): Boolean {
-        Log.d(
-            "Reorderable_DEBUG",
-            "onStartDrag(id=$id, startX=$startX, startY=$startY, expectKey=$expectKey, expectIndex=$expectIndex)"
-        )
         internalReorderableStateCheck(_draggingId == null) {
             "Unexpected Dragging ID during onStartDrag, " +
                     "expect=${null}, actual=$_draggingId, inMainLooper=${inMainLooper()}"
         }
-        val x: Int
-        val y: Int
-        // consider the viewport offset (Content Padding)
+        val x: Float
+        val y: Float
+        // consider the viewport offset of the scroll axis (Content Padding)
         if (isVerticalScroll) {
-            x = 0
+            x = 0f
             y = viewportStartOffset + startY
         } else {
-            x = viewportStartOffset + startX
-            y = 0
+            x = viewportStartOffset + startY
+            y = 0f
         }
         // find the dragged Item according to the Drag input position
         return visibleItemsInfo
             .fastFirstOrNull {
-                x in it.leftPos..it.rightPos && y in it.topPos..it.bottomPos
+                x.toInt() in it.leftPos..it.rightPos && y.toInt() in it.topPos..it.bottomPos
             }
             ?.takeIf { itemInfo ->
-                Log.d(
-                    "Reorderable_DEBUG",
-                    "onStartDrag(id=$id, startX=$startX, startY=$startY, expectKey=$expectKey, expectIndex=$expectIndex) takeIf ${itemInfo.index} ${itemInfo.key}"
-                )
                 itemInfo.key == expectKey &&
                 itemInfo.index == expectIndex &&
                 onDragStart?.invoke(ItemPosition(itemInfo.itemIndex, itemInfo.itemKey)) != false
@@ -332,20 +336,16 @@ class ReorderableLazyListState internal constructor(
                 _draggingId = id
                 _draggingItemStartSnapshot = itemInfo
                 _expectDraggingItemCurrentIndex = itemInfo.index
-                _draggingItemStartOffset = Offset(x.toFloat(), y.toFloat())
+                _draggingItemStartOffset = Offset(x, y)
             } != null
     }
 
     internal override fun onDrag(
         id: Long,
-        dragX: Int,
-        dragY: Int,
+        dragX: Float,
+        dragY: Float,
         expectKey: Any
     ): Boolean {
-        Log.d(
-            "Reorderable_DEBUG",
-            "onDrag(id=$id, drag=$dragX, dragY=$dragY, expectKey=$expectKey)"
-        )
         internalReorderableStateCheck(id == _draggingId) {
             "Unexpected Dragging ID during onDrag, " +
                 "expect=$id, actual=$_draggingId, inMainLooper=${inMainLooper()}"
@@ -476,27 +476,19 @@ class ReorderableLazyListState internal constructor(
         }
     }
 
-    internal override fun onDragEnd(id: Long, endX: Int, endY: Int, expectKey: Any) {
-        Log.d(
-            "Reorderable_DEBUG",
-            "onDragEnd(id=$id, drag=$endX, dragY=$endY, expectKey=$expectKey)"
-        )
+    internal override fun onDragEnd(id: Long, endX: Float, endY: Float, expectKey: Any) {
         dragEnded(false, id, endX, endY, expectKey)
     }
 
-    internal override fun onDragCancelled(id: Long, endX: Int, endY: Int, expectKey: Any) {
-        Log.d(
-            "Reorderable_DEBUG",
-            "onDragCancelled(id=$id, drag=$endX, dragY=$endY, expectKey=$expectKey)"
-        )
+    internal override fun onDragCancelled(id: Long, endX: Float, endY: Float, expectKey: Any) {
         dragEnded(true, id, endX, endY, expectKey)
     }
 
     private fun dragEnded(
         cancelled: Boolean,
         id: Long,
-        endX: Int,
-        endY: Int,
+        endX: Float,
+        endY: Float,
         expectKey: Any
     ) {
         internalReorderableStateCheck(id == _draggingId) {
@@ -507,7 +499,15 @@ class ReorderableLazyListState internal constructor(
             "Unexpected Expect Key during onDragCancelled, " +
                     "expect=$expectKey, actual=${_draggingItemStartSnapshot?.key}, inMainLooper=${inMainLooper()}"
         }
+        val endIndex = _expectDraggingItemCurrentIndex!!
+        val endDelta = _draggingItemDeltaFromStart
         val startSnap = _draggingItemStartSnapshot!!
+        coroutineScope.launch {
+            dragCancelAnimation.dragCancelled(
+                ItemPosition(endIndex, startSnap.key),
+                endDelta
+            )
+        }
         this.onDragEnd?.invoke(
             cancelled,
             ItemPosition(startSnap.index, startSnap.key),
@@ -591,14 +591,10 @@ class ReorderableLazyListState internal constructor(
         }
         _draggingDropTarget?.takeIf { target ->
             val targetCenterPos = (target.startPos + target.endPos) / 2
-            Log.d(
-                "Reorderable_DEBUG",
-                "checkShouldMoveToTarget(deltaX=$deltaX, deltaY=$deltaY), dropTarget takeIf $target $next $targetCenterPos $draggingCenterPos"
-            )
             if (next!!) draggingCenterPos > targetCenterPos else draggingCenterPos < targetCenterPos
         }?.let { target ->
             val moved = onMove(
-                ItemPosition(draggingInfo.index, draggingInfo.key),
+                ItemPosition(expectDraggingItemIndex!!, draggingInfo.key),
                 ItemPosition(target.index, target.key)
             )
             if (!moved) return false
@@ -627,6 +623,9 @@ fun rememberReorderableLazyListState(
     onDragEnd: ((/*dragId: Int,*/ cancelled: Boolean, from: ItemPosition, to: ItemPosition) -> Unit)?,
     movable: ((/*dragId: Int,*/ item: ItemPosition, dragging: ItemPosition) -> Boolean)?,
     onMove: ((/*dragId: Int,*/ from: ItemPosition, to: ItemPosition) -> Boolean),
+    dragCancelAnimation: DragCancelAnimation = DragCancelAnimation(
+        spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = Offset.VisibilityThreshold)
+    )
 ): ReorderableLazyListState {
     val coroutineScope = rememberCoroutineScope()
     return remember(lazyListState) {
@@ -636,7 +635,8 @@ fun rememberReorderableLazyListState(
             onDragStart = onDragStart,
             onDragEnd = onDragEnd,
             movable = movable,
-            onMove = onMove
+            onMove = onMove,
+            dragCancelAnimation = dragCancelAnimation
         )
     }
 }

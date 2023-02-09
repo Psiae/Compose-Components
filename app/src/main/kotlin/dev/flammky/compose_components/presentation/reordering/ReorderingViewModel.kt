@@ -79,6 +79,8 @@ internal class ReorderingViewModel : ViewModel() {
 
         val reorderedMod = reordered.modified
 
+        if (reorderedMod.tracks.getOrNull(from)?.itemID != expectFromID) error("")
+
         val mod = reorderedMod.copy(
             tracks = reorderedMod.tracks
                 .toMutableList()

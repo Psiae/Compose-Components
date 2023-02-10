@@ -1,19 +1,17 @@
 package dev.flammky.compose_components.android.reorderable
 
-import android.util.Log
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.forEachGesture
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.util.fastFirstOrNull
-import androidx.compose.ui.util.fastForEach
 import dev.flammky.compose_components.core.SnapshotRead
 import dev.flammky.compose_components.core.SnapshotReader
 import kotlinx.coroutines.CancellationException
@@ -22,10 +20,14 @@ internal interface ReorderableLazyListApplier {
 
     val lazyLayoutModifiers: Modifier
 
-    fun onRecomposeContent(
+    fun onLazyListScope(
         lazyListScope: LazyListScope,
-        content: @SnapshotReader ReorderableLazyListScope.() -> Unit
+        itemProvider: ReorderableLazyListItemProvider
     )
+
+    fun onStartReorder(from: ItemPosition): Boolean
+    fun onMove(from: ItemPosition, new: ItemPosition): Boolean
+    fun onEndReorder(from: ItemPosition, to: ItemPosition)
 }
 
 /*@Composable
@@ -48,7 +50,7 @@ internal class RealReorderableLazyListApplier(
     private val state: ReorderableLazyListState
 ) : ReorderableLazyListApplier {
 
-    private var _currentComposition by mutableStateOf<RealReorderableLazyListScope?>(null)
+    private var _currentComposition by mutableStateOf<ReorderableLazyListItemProvider?>(null)
     
     private val pointerInputFilterModifier: Modifier = Modifier.pointerInput(Unit) {
         // for each possible gesture, install child drag listener
@@ -68,13 +70,10 @@ internal class RealReorderableLazyListApplier(
                                 pointer.id.value,
                                 pointer.position.x - slop.x,
                                 pointer.position.y - slop.y,
-                                expectKey = dragStart.selfKey,
-                                expectIndex = dragStart.selfIndex
-                            ) && state.onDrag(
-                                pointer.id.value,
                                 slop.x,
                                 slop.y,
-                                expectKey = dragStart.selfKey
+                                expectKey = dragStart.selfKey,
+                                expectIndex = dragStart.selfIndex
                             )
                         }?.let { _ ->
                             val lastDragId: PointerId = dragStart.id
@@ -124,29 +123,23 @@ internal class RealReorderableLazyListApplier(
 
     override val lazyLayoutModifiers: Modifier = pointerInputFilterModifier
 
-    override fun onRecomposeContent(
+    override fun onLazyListScope(
         lazyListScope: LazyListScope,
-        content: @SnapshotReader ReorderableLazyListScope.() -> Unit
+        itemProvider: ReorderableLazyListItemProvider
     ) {
-        val scope = RealReorderableLazyListScope(state)
-        _currentComposition = scope.apply(content)
-        // TODO: think of a name then create the class
-        scope.intervals.fastForEach { interval ->
+        itemProvider.provideLayout(lazyListScope)
+    }
 
-            lazyListScope.items(
-                count = interval.items.size,
-                key = { i -> interval.items[i].key },
-            ) { i ->
-                val composition = _currentComposition
-                    ?: return@items
-                rememberInternalReorderableLazyItemScope(
-                    composition = composition,
-                    index = i
-                ).run {
-                    ComposeContent()
-                }
-            }
-        }
+    override fun onStartReorder(from: ItemPosition): Boolean {
+        return true
+    }
+
+    override fun onMove(from: ItemPosition, new: ItemPosition): Boolean {
+        return true
+    }
+
+    override fun onEndReorder(from: ItemPosition, to: ItemPosition) {
+
     }
 
     @SnapshotRead

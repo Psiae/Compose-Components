@@ -204,6 +204,8 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
         id: Long,
         startX: Float,
         startY: Float,
+        startSlopX: Float,
+        startSlopY: Float,
         expectKey: Any,
         expectIndex: Int
     ): Boolean

@@ -18,28 +18,31 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import dev.flammky.compose_components.core.SnapshotRead
 import dev.flammky.compose_components.core.exhaustedStateException
+import java.util.*
 
 interface ReorderableLazyListScope {
 
     fun item(
-        // as of now key is a must, there will be non-key variant in the future
+        // as of now key is a must, there will be non-key variant in the future (or maybe not)
         key: Any,
         content: @Composable ReorderableLazyItemScope.() -> Unit
     ) = items(1, { key }) { content() }
 
     fun items(
         count: Int,
-        // as of now key is a must, there will be non-key variant in the future
+        // as of now key is a must, there will be non-key variant in the future (or maybe not)
         key: (Int) -> Any,
         content: @Composable ReorderableLazyItemScope.(Int) -> Unit
     )
 }
 
 internal interface InternalReorderableLazyListScope : ReorderableLazyListScope {
-
     val state: ReorderableLazyListState
+    val intervals: List<ReorderableLazyInterval>
     fun indexOfKey(key: Any): Int
-    fun itemOfIndex(index: Int): ReorderableLazyListItem?
+    fun itemOfIndex(index: Int): ReorderableLazyIntervalItem?
+    fun isAppliedContentEqual(other: InternalReorderableLazyListScope): Boolean
+    fun onContentApplied()
 }
 
 /**
@@ -100,11 +103,11 @@ internal interface InternalReorderableLazyItemScope : ReorderableLazyItemScope {
 @Composable
 internal fun LazyItemScope.rememberInternalReorderableLazyItemScope(
     composition: InternalReorderableLazyListScope,
-    index: Int,
+    displayIndex: Int,
 ): InternalReorderableLazyItemScope {
-    return remember(composition, index) {
-        val compositionItem = composition.itemOfIndex(index)
-            ?: internalReorderableError("Missing Index=$index in composition")
+    return remember(composition, displayIndex) {
+        val compositionItem = composition.itemOfIndex(displayIndex)
+            ?: internalReorderableError("Missing Index=$displayIndex in composition")
         RealReorderableLazyItemScope(
             base = this,
             parentOrientation = if (composition.state.isVerticalScroll)
@@ -132,21 +135,23 @@ internal fun LazyItemScope.rememberInternalReorderableLazyItemScope(
 }
 
 internal class RealReorderableLazyListScope(
-    override val state: ReorderableLazyListState,
+    override val state: ReorderableLazyListState
 ) : InternalReorderableLazyListScope {
 
-    private val _indexToKeyMapping = mutableMapOf<Int, Any>()
-    private val _indexToItemMapping = mutableMapOf<Int, ReorderableLazyListItem>()
-    private val _keyToIndexMapping = mutableMapOf<Any, Int>()
-    private val _intervals = mutableListOf<ReorderableLazyItemInterval>()
+    private var locked: Boolean = false
+    private val indexToKeyMapping = mutableMapOf<Int, Any>()
+    private val indexToItemMapping = mutableMapOf<Int, ReorderableLazyIntervalItem>()
+    private val keyToIndexMapping = mutableMapOf<Any, Int>()
+    private val _intervals = mutableListOf<ReorderableLazyInterval>()
     private var itemsLastIndex = 0
 
-    val intervals: List<ReorderableLazyItemInterval> = _intervals
+    override val intervals: List<ReorderableLazyInterval> = _intervals
 
     override fun item(
         key: Any,
         content: @Composable ReorderableLazyItemScope.() -> Unit
     ) {
+        if (locked) return
         items(1, { key }) { content() }
     }
 
@@ -155,23 +160,27 @@ internal class RealReorderableLazyListScope(
         key: (Int) -> Any,
         content: @Composable ReorderableLazyItemScope.(Int) -> Unit
     ) {
-        val intervalStartIndex = itemsLastIndex
+        if (locked) return
+        val intervalIndex = intervals.size
+        val intervalStartIndexInParent = itemsLastIndex
         itemsLastIndex += count
-        val interval = ReorderableLazyItemInterval(
-            items = mutableListOf<ReorderableLazyListItem>()
+        val interval = ReorderableLazyInterval(
+            startIndex = intervalIndex,
+            itemStartIndex = intervalStartIndexInParent,
+            items = mutableListOf<ReorderableLazyIntervalItem>()
                 .apply {
                     repeat(count) { i ->
                         val iKey = key(i)
-                        val item = ReorderableLazyListItem(
-                            i,
-                            intervalStartIndex + i,
-                            iKey,
-                            null,
-                            content
+                        val item = ReorderableLazyIntervalItem(
+                            indexInInterval = i,
+                            indexInParent = intervalStartIndexInParent + i,
+                            key = iKey,
+                            type = null,
+                            content = content
                         )
-                        _indexToKeyMapping[intervalStartIndex + i] = iKey
-                        _indexToItemMapping[intervalStartIndex + i] = item
-                        _keyToIndexMapping[iKey] = intervalStartIndex + i
+                        indexToKeyMapping[intervalStartIndexInParent + i] = iKey
+                        indexToItemMapping[intervalStartIndexInParent + i] = item
+                        keyToIndexMapping[iKey] = intervalStartIndexInParent + i
                         add(item)
                     }
                 }
@@ -179,14 +188,115 @@ internal class RealReorderableLazyListScope(
         _intervals.add(interval)
         repeat(count) { i ->
             val iKey = key(i)
-            _indexToKeyMapping[intervalStartIndex + i] = iKey
-            _keyToIndexMapping[iKey] = intervalStartIndex + i
+            indexToKeyMapping[intervalStartIndexInParent + i] = iKey
+            keyToIndexMapping[iKey] = intervalStartIndexInParent + i
         }
     }
 
-    override fun indexOfKey(key: Any): Int = _keyToIndexMapping.getOrElse(key) { -1 }
-    override fun itemOfIndex(index: Int): ReorderableLazyListItem? = _indexToItemMapping.getOrElse(index) { null }
+    override fun indexOfKey(key: Any): Int = keyToIndexMapping.getOrElse(key) { -1 }
+    override fun itemOfIndex(index: Int): ReorderableLazyIntervalItem? = indexToItemMapping.getOrElse(index) { null }
+    override fun isAppliedContentEqual(other: InternalReorderableLazyListScope): Boolean {
+        return (_intervals == other.intervals)
+    }
+    override fun onContentApplied() {
+        locked = true
+    }
 }
+
+/*internal class MaskedReorderableLazyListScope(
+    private val base: InternalReorderableLazyListScope
+) : InternalReorderableLazyListScope {
+    private var locked: Boolean = false
+    private val indexToKeyMapping = mutableMapOf<Int, Any>()
+    private val indexToItemMapping = mutableMapOf<Int, ReorderableLazyIntervalItem>()
+    private val keyToIndexMapping = mutableMapOf<Any, Int>()
+    private val _intervals = mutableListOf<ReorderableLazyInterval>()
+    private var itemsLastIndex = 0
+
+    override val intervals: List<ReorderableLazyInterval> = _intervals
+
+    override val state: ReorderableLazyListState
+        get() = base.state
+
+    override val applier: ReorderableLazyListApplier
+        get() = base.applier
+
+    override fun item(
+        key: Any,
+        content: @Composable ReorderableLazyItemScope.() -> Unit
+    ) {
+        if (locked) return
+        items(1, { key }) { content() }
+    }
+
+    override fun items(
+        count: Int,
+        key: (Int) -> Any,
+        content: @Composable ReorderableLazyItemScope.(Int) -> Unit
+    ) {
+        if (locked) return
+        val intervalIndex = intervals.size
+        val intervalStartIndexInParent = itemsLastIndex
+        itemsLastIndex += count
+        val interval = ReorderableLazyInterval(
+            startIndex = intervalIndex,
+            itemStartIndex = intervalStartIndexInParent,
+            items = mutableListOf<ReorderableLazyIntervalItem>()
+                .apply {
+                    repeat(count) { i ->
+                        val iKey = key(i)
+                        val item = ReorderableLazyIntervalItem(
+                            indexInInterval = i,
+                            indexInParent = intervalStartIndexInParent + i,
+                            key = iKey,
+                            type = null,
+                            content = content
+                        )
+                        indexToKeyMapping[intervalStartIndexInParent + i] = iKey
+                        indexToItemMapping[intervalStartIndexInParent + i] = item
+                        keyToIndexMapping[iKey] = intervalStartIndexInParent + i
+                        add(item)
+                    }
+                }
+        )
+        _intervals.add(interval)
+        repeat(count) { i ->
+            val iKey = key(i)
+            indexToKeyMapping[intervalStartIndexInParent + i] = iKey
+            keyToIndexMapping[iKey] = intervalStartIndexInParent + i
+        }
+    }
+
+    override fun indexOfKey(key: Any): Int = keyToIndexMapping.getOrElse(key) { -1 }
+    override fun itemOfIndex(index: Int): ReorderableLazyIntervalItem? = indexToItemMapping.getOrElse(index) { null }
+    override fun isAppliedContentEqual(other: InternalReorderableLazyListScope): Boolean {
+        return (_intervals == other.intervals)
+    }
+    override fun onContentApplied() {
+        locked = true
+    }
+
+    override fun applyToLayout(
+        scope: LazyListScope,
+        latestComposition: @SnapshotRead () -> InternalReorderableLazyListScope?
+    ) {
+        intervals.fastForEach { interval ->
+            scope.items(
+                count = interval.items.size,
+                key = { i -> interval.items[i].key },
+            ) { i ->
+                val composition = latestComposition()
+                    ?: return@items
+                rememberInternalReorderableLazyItemScope(
+                    composition = composition,
+                    displayIndex = i
+                ).run {
+                    ComposeContent()
+                }
+            }
+        }
+    }
+}*/
 
 internal class RealReorderableLazyItemScope(
     private val base: LazyItemScope,
@@ -320,6 +430,7 @@ internal class RealReorderableLazyItemScope(
                             translationY = currentDraggingItemDelta().y
                         }
                     }
+                    Log.d("Reorderable_DEBUG", "draggingItemDelta = ($translationX, $translationY)")
                 }
         } else if (info.cancelling) {
             Modifier
@@ -344,14 +455,37 @@ internal class RealReorderableLazyItemScope(
     override fun ComposeContent() = content(positionInParent.index)
 }
 
-internal class ReorderableLazyItemInterval(
-    val items: List<ReorderableLazyListItem>
-)
+internal class ReorderableLazyInterval(
+    val startIndex: Int,
+    val itemStartIndex: Int,
+    val items: List<ReorderableLazyIntervalItem>
+) {
+    override fun equals(other: Any?): Boolean {
+        return other is ReorderableLazyInterval && other.items == this.items
+    }
 
-internal class ReorderableLazyListItem(
+    override fun hashCode(): Int {
+        return items.hashCode()
+    }
+}
+
+internal class ReorderableLazyIntervalItem(
     val indexInInterval: Int,
     val indexInParent: Int,
     val key: Any,
     val type: Any?,
     val content: @Composable ReorderableLazyItemScope.(index: Int) -> Unit
-)
+) {
+
+    override fun equals(other: Any?): Boolean {
+        return other is ReorderableLazyIntervalItem &&
+                other.indexInInterval == this.indexInInterval &&
+                other.indexInParent == this.indexInParent &&
+                other.key == this.key &&
+                other.type == this.type
+    }
+
+    override fun hashCode(): Int {
+        return Objects.hash(indexInInterval, indexInParent, key, type)
+    }
+}

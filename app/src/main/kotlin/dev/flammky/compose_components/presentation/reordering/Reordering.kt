@@ -3,6 +3,7 @@ package dev.flammky.compose_components.presentation.reordering
 import android.os.Parcel
 import android.os.Parcelable
 import android.util.Log
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -17,7 +18,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.flammky.compose_components.R
 import dev.flammky.compose_components.android.reorderable.ItemPosition
@@ -106,13 +106,20 @@ private fun OrderingTestUsage(
                 bottom = navigationBarHeight
             ),
         ) scope@ {
-            val maskedList = viewModel.maskedQueueState.value
+            // TODO: handle list masking in the library instead
+            val listForComposition = viewModel.maskedQueueState.value
             items(
-                count = maskedList.tracks.size,
-                key = { i -> QueueItemPositionKey(maskedList.queueID, maskedList.tracks[i].itemID) }
+                count = listForComposition.tracks.size,
+                key = { i ->
+                    QueueItemPositionKey(
+                        listForComposition.queueID,
+                        listForComposition.tracks[i].itemID
+                    )
+                }
             ) { i ->
-                TestTaskItemLayout(maskedList.tracks[i])
+                TestTaskItemLayout(listForComposition.tracks[i])
             }
+            // Should this return the recomposition info?
         }
     }
 
@@ -129,14 +136,13 @@ private fun ReorderableLazyItemScope.TestTaskItemLayout(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .zIndex(if (info.dragging) 1f else 0f)
+            .reorderingItemVisualModifiers()
+            .background(Theme.backgroundColorAsState().value)
     ) {
         Row(
             modifier = Modifier
                 .height(60.dp)
-                .fillMaxWidth()
-                .reorderingItemVisualModifiers()
-                .background(Theme.backgroundColorAsState().value),
+                .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(

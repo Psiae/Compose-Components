@@ -3,6 +3,9 @@ package dev.flammky.compose_components.android.reorderable
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import dev.flammky.compose_components.core.SnapshotReader
 
@@ -25,11 +28,14 @@ fun ReorderableLazyColumn(
     contentPadding: PaddingValues,
     content: @SnapshotReader ReorderableLazyListScope.() -> Unit
 ) {
+
+    val itemProvider = rememberReorderableLazyListItemProvider(state, content)
+
     LazyColumn(
         modifier = modifier.then(state.applier.lazyLayoutModifiers),
         state = state.lazyListState,
         contentPadding = contentPadding
     ) scope@ {
-        state.applier.onRecomposeContent(this@scope, content)
+        state.applier.onLazyListScope(this, itemProvider)
     }
 }

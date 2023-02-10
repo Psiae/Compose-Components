@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import java.util.Collections
 
 class ReorderableLazyListState internal constructor(
     val coroutineScope: CoroutineScope,
@@ -36,7 +37,8 @@ class ReorderableLazyListState internal constructor(
     private var _draggingItemStartSnapshot by mutableStateOf<LazyListItemInfo?>(null)
     private var _draggingItemLatestSnapshot by mutableStateOf<LazyListItemInfo?>(null)
     private var _expectDraggingItemCurrentIndex by mutableStateOf<Int?>(null)
-    private var _draggingItemStartOffset = Offset.Zero
+    private var _draggingItemStartDownOffset = Offset.Zero
+    private var _draggingItemStartDraggingOffset = Offset.Zero
     private var _draggingItemDeltaFromStart by mutableStateOf(Offset.Zero)
     private var _draggingItemDeltaFromCurrent by mutableStateOf(Offset.Zero)
     private var _draggingDropTarget: LazyListItemInfo? = null
@@ -305,6 +307,8 @@ class ReorderableLazyListState internal constructor(
         id: Long,
         startX: Float,
         startY: Float,
+        startSlopX: Float,
+        startSlopY: Float,
         expectKey: Any,
         expectIndex: Int
     ): Boolean {
@@ -319,7 +323,7 @@ class ReorderableLazyListState internal constructor(
             x = 0f
             y = viewportStartOffset + startY
         } else {
-            x = viewportStartOffset + startY
+            x = viewportStartOffset + startX
             y = 0f
         }
         // find the dragged Item according to the Drag input position
@@ -330,13 +334,16 @@ class ReorderableLazyListState internal constructor(
             ?.takeIf { itemInfo ->
                 itemInfo.key == expectKey &&
                 itemInfo.index == expectIndex &&
+                _applier.onStartReorder(ItemPosition(itemInfo.index, itemInfo.key)) &&
                 onDragStart?.invoke(ItemPosition(itemInfo.itemIndex, itemInfo.itemKey)) != false
             }
             ?.let { itemInfo ->
                 _draggingId = id
                 _draggingItemStartSnapshot = itemInfo
                 _expectDraggingItemCurrentIndex = itemInfo.index
-                _draggingItemStartOffset = Offset(x, y)
+                _draggingItemStartDraggingOffset = Offset(x, y)
+                _draggingItemStartDownOffset = Offset(x - startSlopX, y - startSlopY)
+                _draggingItemDeltaFromStart = Offset(startSlopX, startSlopY)
             } != null
     }
 
@@ -502,21 +509,31 @@ class ReorderableLazyListState internal constructor(
         val endIndex = _expectDraggingItemCurrentIndex!!
         val endDelta = _draggingItemDeltaFromStart
         val startSnap = _draggingItemStartSnapshot!!
+        val startSnapLayoutPosition = startSnap.layoutPositionInParent
+        val endOffset = draggingItemLayoutInfo?.layoutPositionInParent
+            ?.let {
+                Offset(startSnapLayoutPosition.left, startSnapLayoutPosition.top) + endDelta - Offset(it.left, it.top)
+            }
+            ?: Offset.Zero
         coroutineScope.launch {
             dragCancelAnimation.dragCancelled(
                 ItemPosition(endIndex, startSnap.key),
-                endDelta
+                endOffset
             )
         }
+        _applier.onEndReorder(
+            ItemPosition(startSnap.index, startSnap.key),
+            ItemPosition(endIndex, startSnap.key)
+        )
         this.onDragEnd?.invoke(
             cancelled,
             ItemPosition(startSnap.index, startSnap.key),
-            ItemPosition(expectDraggingItemIndex!!, startSnap.key)
+            ItemPosition(endIndex, startSnap.key)
         )
         _draggingId = null
         _draggingItemStartSnapshot = null
         _expectDraggingItemCurrentIndex = null
-        _draggingItemStartOffset = Offset.Zero
+        _draggingItemStartDraggingOffset = Offset.Zero
         _draggingItemDeltaFromStart = Offset.Zero
         _draggingDropTarget = null
     }
@@ -593,11 +610,20 @@ class ReorderableLazyListState internal constructor(
             val targetCenterPos = (target.startPos + target.endPos) / 2
             if (next!!) draggingCenterPos > targetCenterPos else draggingCenterPos < targetCenterPos
         }?.let { target ->
-            val moved = onMove(
-                ItemPosition(expectDraggingItemIndex!!, draggingInfo.key),
-                ItemPosition(target.index, target.key)
+            val fromPosition = ItemPosition(
+                expectDraggingItemIndex!!,
+                draggingInfo.key
             )
-            if (!moved) return false
+            val toPosition = ItemPosition(
+                target.index,
+                target.key
+            )
+            if (!onMove(fromPosition, toPosition)) {
+                return false
+            }
+            if (!_applier.onMove(fromPosition, toPosition)) {
+                return false
+            }
             _expectDraggingItemCurrentIndex = target.index
         }
         return true

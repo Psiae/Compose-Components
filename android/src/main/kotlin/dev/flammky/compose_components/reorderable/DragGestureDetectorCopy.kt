@@ -1,4 +1,4 @@
-package dev.flammky.compose_components.android.reorderable
+package dev.flammky.compose_components.reorderable
 
 /*
  * Copyright 2021 The Android Open Source Project

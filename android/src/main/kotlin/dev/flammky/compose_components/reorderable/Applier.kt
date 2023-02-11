@@ -1,5 +1,6 @@
-package dev.flammky.compose_components.android.reorderable
+package dev.flammky.compose_components.reorderable
 
+import android.util.Log
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.forEachGesture
 import androidx.compose.foundation.lazy.LazyListScope
@@ -53,7 +54,9 @@ internal class RealReorderableLazyListApplier(
                                 slop.y,
                                 expectKey = dragStart.selfKey,
                                 expectIndex = dragStart.selfIndex
-                            )
+                            ).also {
+                                Log.d("Reorderable_DEBUG", "state.onStartDrag(${dragStart.selfIndex}, ${dragStart.selfKey})=$it")
+                            }
                         }?.let { _ ->
                             val lastDragId: PointerId = dragStart.id
                             var lastDragX: Float = dragStart.slop.x

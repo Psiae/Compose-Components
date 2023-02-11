@@ -1,4 +1,4 @@
-package dev.flammky.compose_components.android.reorderable
+package dev.flammky.compose_components.reorderable
 
 internal inline fun internalReorderableError(msg: String): Nothing = error(
     """

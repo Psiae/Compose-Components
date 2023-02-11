@@ -1,4 +1,4 @@
-package dev.flammky.compose_components.android.reorderable
+package dev.flammky.compose_components.reorderable
 
 import androidx.compose.ui.geometry.Offset
 import dev.flammky.compose_components.core.LayoutPosition

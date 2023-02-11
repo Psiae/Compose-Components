@@ -1,13 +1,11 @@
-package dev.flammky.compose_components.android.reorderable
+package dev.flammky.compose_components.reorderable
 
-import android.util.Log
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.forEachGesture
 import androidx.compose.foundation.lazy.LazyItemScope
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -174,10 +172,6 @@ internal fun LazyItemScope.rememberInternalReorderableLazyItemScope(
             currentCancellingItemDelta = composition.state::cancellingItemDelta,
             currentCancellingItemPositionInParent = composition.state::cancellingItemPosition,
             onReorderInput = { pid, offset ->
-                Log.d(
-                    "Reorderable_DEBUG",
-                    "onReorderInput trySend $pid $offset)"
-                )
                 composition.state.childReorderStartChannel
                     .trySend(ReorderDragStart(pid, composition, offset, compositionItem.indexInParent, compositionItem.key))
             },
@@ -314,13 +308,13 @@ internal class MaskedReorderableLazyListScope(
         if (from < to) {
             for (i in from until to) {
                 val current = map[i + 1]
-                val next = map[i + 1] ?: i + 1
+                val next = map[i + 1] ?: (i + 1)
                 if (current == next) map.remove(current) else map[i] = next
             }
         } else {
             for (i in from downTo to + 1) {
                 val current = map[i - 1]
-                val prev = map[i - 1] ?: i - 1
+                val prev = map[i - 1] ?: (i - 1)
                 if (current == prev) map.remove(current) else map[i] = prev
             }
         }
@@ -357,15 +351,7 @@ internal class MaskedReorderableLazyListScope(
                     toActual
                 )
             }
-       return result.also {
-           Log.d("Reorderable_DEBUG",
-               """
-                   MASK onMove(from=$from to=$to), 
-                   before=$maskedIndexMapping
-                   result=${it.maskedIndexMapping}
-               """.trimIndent()
-           )
-       }
+       return result
     }
 }
 
@@ -502,7 +488,6 @@ internal class RealReorderableLazyItemScope(
                             translationY = currentDraggingItemDelta().y
                         }
                     }
-                    Log.d("Reorderable_DEBUG", "draggingItemDelta = ($translationX, $translationY)")
                 }
         } else if (info.cancelling) {
             Modifier
@@ -524,7 +509,7 @@ internal class RealReorderableLazyItemScope(
     }
 
     @Composable
-    override fun ComposeContent() = content(positionInBase.index)
+    override fun ComposeContent() = content(positionInBatch.index)
 }
 
 internal class ReorderableLazyInterval(

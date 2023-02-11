@@ -1,4 +1,4 @@
-package dev.flammky.compose_components.android.reorderable
+package dev.flammky.compose_components.reorderable
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
@@ -21,11 +21,11 @@ class DragCancelAnimation(
     val animatedOffset: Offset
         @SnapshotRead get() = animatable.value
 
-    var cancellingItemPosition by mutableStateOf<ItemPosition?>(null)
+    var cancellingItemPosition by mutableStateOf<dev.flammky.compose_components.reorderable.ItemPosition?>(null)
         @SnapshotRead get
         @SnapshotWriter private set
 
-    internal suspend fun dragCancelled(position: ItemPosition, offset: Offset) {
+    internal suspend fun dragCancelled(position: dev.flammky.compose_components.reorderable.ItemPosition, offset: Offset) {
         check(coroutineContext[ContinuationInterceptor] is AndroidUiDispatcher)
         cancellingItemPosition = position
         animatable.snapTo(offset)

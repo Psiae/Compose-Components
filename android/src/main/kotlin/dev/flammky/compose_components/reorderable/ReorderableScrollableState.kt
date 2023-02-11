@@ -1,5 +1,6 @@
-package dev.flammky.compose_components.android.reorderable
+package dev.flammky.compose_components.reorderable
 
+import androidx.compose.ui.unit.IntSize
 import dev.flammky.compose_components.core.SnapshotRead
 import kotlinx.coroutines.channels.Channel
 
@@ -16,6 +17,9 @@ abstract class ReorderableScrollableState <ScrollableItemInfo> internal construc
         @SnapshotRead get
 
     abstract val reverseLayout: Boolean
+        @SnapshotRead get
+
+    abstract val viewportSizePx: IntSize
         @SnapshotRead get
 
     abstract val visibleItemsInfo: List<ScrollableItemInfo>

@@ -1,4 +1,4 @@
-package dev.flammky.compose_components.android.reorderable
+package dev.flammky.compose_components.reorderable
 
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.*

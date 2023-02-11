@@ -20,12 +20,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.flammky.compose_components.R
-import dev.flammky.compose_components.android.reorderable.*
 import dev.flammky.compose_components.core.NoInline
 import dev.flammky.compose_components.presentation.theme.Theme
 import dev.flammky.compose_components.presentation.theme.backgroundColorAsState
 import dev.flammky.compose_components.presentation.theme.backgroundContentColorAsState
 import dev.flammky.compose_components.presentation.theme.surfaceVariantColorAsState
+import dev.flammky.compose_components.reorderable.*
 
 @Composable
 internal fun Ordering(
@@ -59,6 +59,7 @@ private fun OrderingTestUsage(
         )
 
         ReorderableLazyColumn(
+            modifier = Modifier.fillMaxSize(),
             state = rememberReorderableLazyListState(
                 lazyListState = lazyListState,
                 onDragStart = start@ { item: ItemPosition ->
@@ -103,6 +104,7 @@ private fun OrderingTestUsage(
                 top = statusBarHeight,
                 bottom = navigationBarHeight
             ),
+            reverseLayout = false
         ) scope@ {
             val compositionQueue = viewModel.actualQueueState.value
             itemsIndexed(
@@ -112,7 +114,8 @@ private fun OrderingTestUsage(
                         run { check(item.queueID == compositionQueue.queueID) ; item.queueID },
                         item.itemID
                     )
-                }
+                },
+                contentType = { _, _ -> QueueItemPositionLayoutType() }
             ) { _, item ->
                 TestTaskItemLayout(item)
             }
@@ -181,7 +184,6 @@ private fun ReorderableLazyItemScope.TestTaskItemLayout(
 internal data class QueueItemPositionLayoutType(
     val unit: Unit = Unit
 )
-
 
 internal data class QueueItemPositionKey(
     val qID: String,

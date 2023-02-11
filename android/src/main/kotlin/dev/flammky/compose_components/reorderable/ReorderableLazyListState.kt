@@ -1,22 +1,29 @@
-package dev.flammky.compose_components.android.reorderable
+package dev.flammky.compose_components.reorderable
 
 import android.util.Log
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastFirstOrNull
 import androidx.compose.ui.util.fastForEach
 import dev.flammky.compose_components.core.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.util.Collections
+import kotlin.math.*
 
 class ReorderableLazyListState internal constructor(
     val coroutineScope: CoroutineScope,
@@ -28,7 +35,8 @@ class ReorderableLazyListState internal constructor(
     // should we handle the listing ?
     private val movable: ((from: ItemPosition, to: ItemPosition) -> Boolean)?,
     private val onMove: ((from: ItemPosition, to: ItemPosition) -> Boolean),
-    private val dragCancelAnimation: DragCancelAnimation
+    private val dragCancelAnimation: dev.flammky.compose_components.reorderable.DragCancelAnimation,
+    private val maxScrollPerFramePx: Float
 ) : ReorderableScrollableState<LazyListItemInfo>() {
 
     private val _applier = RealReorderableLazyListApplier(this)
@@ -61,8 +69,13 @@ class ReorderableLazyListState internal constructor(
         @SnapshotRead
         get() = lazyListState.layoutInfo.visibleItemsInfo
 
-    override val reverseLayout: Boolean =
-        lazyListState.layoutInfo.reverseLayout
+    override val reverseLayout: Boolean
+        @SnapshotRead
+        get() = lazyListState.layoutInfo.reverseLayout
+
+    override val viewportSizePx: IntSize
+        @SnapshotRead
+        get() = lazyListState.layoutInfo.viewportSize
 
     override val expectDraggingItemIndex: Int?
         @SnapshotRead
@@ -92,9 +105,9 @@ class ReorderableLazyListState internal constructor(
                 visible.key == snap.key
             }?.let { inLayout ->
                 if (isVerticalScroll) {
-                    verticalOffset(snap.offset + _draggingItemDeltaFromStart.y - inLayout.offset)
+                    verticalOffset(snap.topPos + _draggingItemDeltaFromStart.y - inLayout.topPos)
                 } else if (isHorizontalScroll) {
-                    horizontalOffset(snap.offset + _draggingItemDeltaFromStart.x - inLayout.offset)
+                    horizontalOffset(snap.leftPos + _draggingItemDeltaFromStart.x - inLayout.leftPos)
                 } else exhaustedStateException()
             }
         } ?: Offset.Zero
@@ -226,9 +239,7 @@ class ReorderableLazyListState internal constructor(
         @SnapshotRead
         get() = when {
             isVerticalScroll -> 0
-            lazyListState.layoutInfo.reverseLayout -> {
-                lazyListState.layoutInfo.viewportSize.width - offset - size
-            }
+            reverseLayout -> viewportSizePx.width - offset - size
             else -> offset
         }
 
@@ -236,9 +247,7 @@ class ReorderableLazyListState internal constructor(
         @SnapshotRead
         get() = when {
             isVerticalScroll -> 0
-            lazyListState.layoutInfo.reverseLayout -> {
-                lazyListState.layoutInfo.viewportSize.width - offset
-            }
+            reverseLayout -> viewportSizePx.width - offset
             else -> offset + size
         }
 
@@ -246,9 +255,7 @@ class ReorderableLazyListState internal constructor(
         @SnapshotRead
         get() = when {
             !isVerticalScroll -> 0
-            lazyListState.layoutInfo.reverseLayout -> {
-                lazyListState.layoutInfo.viewportSize.height - offset - size
-            }
+            reverseLayout -> viewportSizePx.height - offset - size
             else -> offset
         }
 
@@ -256,34 +263,31 @@ class ReorderableLazyListState internal constructor(
         @SnapshotRead
         get() = when {
             !isVerticalScroll -> 0
-            lazyListState.layoutInfo.reverseLayout -> {
-                lazyListState.layoutInfo.viewportSize.height - offset
-            }
+            reverseLayout -> viewportSizePx.height - offset
             else -> offset + size
         }
 
     override val LazyListItemInfo.startPos: Int
         get() = if (isVerticalScroll) {
-            if (lazyListState.layoutInfo.reverseLayout)
-                lazyListState.layoutInfo.viewportSize.height - offset - size
-            else
-                offset
+            if (reverseLayout)
+                viewportSizePx.height - offset - size
+            else offset
         } else {
-            if (lazyListState.layoutInfo.reverseLayout)
-                lazyListState.layoutInfo.viewportSize.width - offset - size
+            if (reverseLayout)
+                viewportSizePx.width - offset - size
             else
                 offset
         }
 
     override val LazyListItemInfo.endPos: Int
         get() = if (isVerticalScroll) {
-            if (lazyListState.layoutInfo.reverseLayout)
-                lazyListState.layoutInfo.viewportSize.height - offset
+            if (reverseLayout)
+                viewportSizePx.height - offset
             else
                 offset + size
         } else {
-            if (lazyListState.layoutInfo.reverseLayout)
-                lazyListState.layoutInfo.viewportSize.width - offset
+            if (reverseLayout)
+                viewportSizePx.width - offset
             else
                 offset + size
         }
@@ -323,10 +327,19 @@ class ReorderableLazyListState internal constructor(
         val y: Float
         // consider the viewport offset of the scroll axis (Content Padding)
         if (isVerticalScroll) {
+            Log.d("Reorderable_DEBUG", "$reverseLayout")
             x = 0f
-            y = viewportStartOffset + startY
+            y = if (reverseLayout) {
+                -viewportStartOffset
+            } else {
+                viewportStartOffset
+            } + startY
         } else {
-            x = viewportStartOffset + startX
+            x = if (reverseLayout) {
+                -viewportStartOffset
+            } else {
+                viewportStartOffset
+            } + startX
             y = 0f
         }
         // find the dragged Item according to the Drag input position
@@ -390,7 +403,7 @@ class ReorderableLazyListState internal constructor(
             return false
         }
         val scrollAllow = checkOnDragOverscroll(
-            draggingInfo, dragDelta
+            id, expectKey, draggingInfo, dragDelta
         )
         if (!scrollAllow) {
             return false
@@ -399,17 +412,24 @@ class ReorderableLazyListState internal constructor(
     }
 
     private fun checkOnDragOverscroll(
+        dragId: Long,
+        key: Any,
         draggingItemInfo: LazyListItemInfo,
         draggingDelta: Offset
     ): Boolean {
-        autoscroll(calculateOverscrollOffset(draggingItemInfo, draggingDelta))
+        autoscroll(
+            dragId, key,
+            interpolateAutoScrollOffset(
+                draggingItemInfo.endPos - draggingItemInfo.startPos,
+                calculateOverscrollOffset(draggingDelta),
+                0,
+                maxScrollPerFramePx
+            )
+        )
         return true
     }
 
-    private fun calculateOverscrollOffset(
-        draggingItemInfo: LazyListItemInfo,
-        draggingDelta: Offset
-    ): Float {
+    private fun calculateOverscrollOffset(draggingDelta: Offset): Float {
         val delta =
             if (isVerticalScroll) {
                 draggingDelta.y
@@ -418,20 +438,20 @@ class ReorderableLazyListState internal constructor(
             }
         return when {
             delta < 0 -> {
-                val startPos =
+                val draggingOffset =
                     if (isVerticalScroll)
-                        draggingItemInfo.topPos + delta
+                        _draggingItemStartSnapshot!!.topPos + delta
                     else
-                        draggingItemInfo.leftPos + delta
-                (startPos - viewportStartOffset).coerceAtLeast(0f)
+                        _draggingItemStartSnapshot!!.leftPos + delta
+                (draggingOffset - viewportStartOffset).coerceAtMost(0f)
             }
             delta > 0 -> {
-                val endPos =
+                val draggingOffset =
                     if (isVerticalScroll)
-                        draggingItemInfo.bottomPos + delta
+                        _draggingItemStartSnapshot!!.bottomPos + delta
                     else
-                        draggingItemInfo.rightPos + delta
-                (endPos - viewportEndOffset).coerceAtLeast(0f)
+                        _draggingItemStartSnapshot!!.rightPos + delta
+                (draggingOffset - viewportEndOffset).coerceAtLeast(0f)
             }
             else -> 0f
         }
@@ -443,7 +463,7 @@ class ReorderableLazyListState internal constructor(
     ): Float {
         val (size: Int, outSize: Float) = _draggingItemStartSnapshot
             ?.let { itemInfo ->
-                itemInfo.endPos - itemInfo.startPos to calculateOverscrollOffset(itemInfo, _draggingItemDeltaFromStart)
+                itemInfo.endPos - itemInfo.startPos to calculateOverscrollOffset(_draggingItemDeltaFromStart)
             }
             ?: return 0f
         return interpolateAutoScrollOffset(size, outSize, frameTimeMillis, maxScrollPx)
@@ -451,35 +471,62 @@ class ReorderableLazyListState internal constructor(
 
     private fun interpolateAutoScrollOffset(
         viewLength: Int,
-        viewOutOfBoundsLength: Float,
+        viewOutOfBoundsOffset: Float,
         frameTimeMillis: Long,
         maxScrollPx: Float,
     ): Float {
-        // TODO
-        return 0f
+        if (viewOutOfBoundsOffset == 0f) return 0f
+        val outOfBoundsRatio = (1f * abs(viewOutOfBoundsOffset) / viewLength)
+        val timeRatio = (frameTimeMillis.toFloat() / 1500)
+        val accel = (timeRatio.coerceAtMost(1f).pow(5))
+        val calc = sign(viewOutOfBoundsOffset) * maxScrollPx * run {
+            val t = 1 - outOfBoundsRatio.coerceAtMost(1f)
+            1 - t * t * t * t
+        } * accel
+        return calc.takeIf { it != 0f } ?: if (viewOutOfBoundsOffset > 0) 1f else -1f
     }
 
-    private fun autoscroll(scrollOffset: Float) {
+    private var latestAutoScrollId: Long? = null
+    private var latestAutoScrollKey: Any? = null
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun autoscroll(id: Long, key: Any, scrollOffset: Float) {
         if (scrollOffset != 0f) {
             if (_autoScrollerJob?.isActive == true) {
                 return
             }
             _autoScrollerJob = coroutineScope.launch {
-                var scroll = scrollOffset
-                var startMs = 0L
-                while (scroll != 0f && _autoScrollerJob?.isActive == true) {
-                    withFrameMillis { frameMs ->
-                        if (startMs == 0L) {
-                            startMs = frameMs
-                        } else {
-                            scroll = calculateCurrentAutoScrollOffset(
-                                frameMs - startMs,
-                                20f
-                            )
+                latestAutoScrollId = id
+                latestAutoScrollKey = key
+                val scroller = launch {
+                    var scroll = scrollOffset
+                    var startMs = 0L
+                    while (scroll != 0f && _autoScrollerJob?.isActive == true) {
+                        withFrameMillis { frameMs ->
+                            if (startMs == 0L) {
+                                startMs = frameMs
+                            } else {
+                                scroll = calculateCurrentAutoScrollOffset(
+                                    frameMs - startMs,
+                                    maxScrollPerFramePx
+                                )
+                            }
                         }
+                        lazyListState.scrollBy(if (reverseLayout) -scroll else scroll)
                     }
-                    scrollChannel.send(scroll)
                 }
+                val toDragApplier = launch {
+                    snapshotFlow { expectDraggingItemIndex != null }
+                        .flatMapLatest { if (it) snapshotFlow { visibleItemsInfo } else flowOf(null) }
+                        .filterNotNull()
+                        .distinctUntilChanged { old, new ->
+                            old.firstOrNull()?.index == new.firstOrNull()?.index && old.count() == new.count()
+                        }
+                        .collect {
+                            onDrag(latestAutoScrollId!!, 0f, 0f, latestAutoScrollKey!!)
+                        }
+                }
+                scroller.join()
+                toDragApplier.join()
             }
         } else {
             _autoScrollerJob?.cancel()
@@ -542,6 +589,7 @@ class ReorderableLazyListState internal constructor(
         _draggingItemStartDraggingOffset = Offset.Zero
         _draggingItemDeltaFromStart = Offset.Zero
         _draggingDropTarget = null
+        _autoScrollerJob?.cancel()
     }
 
     private fun checkShouldMoveToTarget(
@@ -550,10 +598,6 @@ class ReorderableLazyListState internal constructor(
         snap: LazyListItemInfo,
         draggingInfo: LazyListItemInfo
     ): Boolean {
-        Log.d(
-            "Reorderable_DEBUG",
-            "checkShouldMoveToTarget(deltaX=$deltaX, deltaY=$deltaY)"
-        )
         if (deltaX == 0 && deltaY == 0) {
             return true
         }
@@ -584,10 +628,11 @@ class ReorderableLazyListState internal constructor(
             draggingCenterPos = (draggingStartPos + draggingEndPos) / 2
         } else exhaustedStateException()
 
-        var next: Boolean? = null
+        var toEnd: Boolean? = null
         run {
             // we can improve this
             visibleItemsInfo.fastForEach { visibleItem ->
+                Log.d("Reorderable_DEBUG", "checkOverTargetCenter each ${visibleItem.index}")
                 if (visibleItem.itemIndex == draggingInfo.itemIndex) {
                     return@fastForEach
                 }
@@ -605,16 +650,17 @@ class ReorderableLazyListState internal constructor(
                     ) != false
                 ) {
                     _draggingDropTarget = visibleItem
-                    next = visibleItem.index > expectDraggingItemIndex!!
+                    toEnd = visibleItem.index > expectDraggingItemIndex!!
+                    if (reverseLayout) toEnd = !toEnd!!
                 }
-                if (visibleItem.itemIndex > expectDraggingItemIndex!!) {
+                if (visibleItem.index > expectDraggingItemIndex!!) {
                     return@run
                 }
             }
         }
         _draggingDropTarget?.takeIf { target ->
             val targetCenterPos = (target.startPos + target.endPos) / 2
-            if (next!!) draggingCenterPos > targetCenterPos else draggingCenterPos < targetCenterPos
+            if (toEnd!!) draggingCenterPos > targetCenterPos else draggingCenterPos < targetCenterPos
         }?.let { target ->
             val fromPosition = ItemPosition(
                 expectDraggingItemIndex!!,
@@ -629,6 +675,14 @@ class ReorderableLazyListState internal constructor(
             }
             if (!_applier.onMove(_draggingLatestScope!!, fromPosition, toPosition)) {
                 return false
+            }
+            if (
+                fromPosition.index == lazyListState.firstVisibleItemIndex ||
+                toPosition.index == lazyListState.firstVisibleItemIndex
+            ) {
+                coroutineScope.launch {
+                    lazyListState.scrollToItem(firstVisibleItemIndex, firstVisibleItemScrollOffset)
+                }
             }
             _expectDraggingItemCurrentIndex = target.index
         }
@@ -655,11 +709,16 @@ fun rememberReorderableLazyListState(
     onDragEnd: ((/*dragId: Int,*/ cancelled: Boolean, from: ItemPosition, to: ItemPosition) -> Unit)?,
     movable: ((/*dragId: Int,*/ item: ItemPosition, dragging: ItemPosition) -> Boolean)?,
     onMove: ((/*dragId: Int,*/ from: ItemPosition, to: ItemPosition) -> Boolean),
-    dragCancelAnimation: DragCancelAnimation = DragCancelAnimation(
-        spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = Offset.VisibilityThreshold)
-    )
+    dragCancelAnimation: dev.flammky.compose_components.reorderable.DragCancelAnimation = dev.flammky.compose_components.reorderable.DragCancelAnimation(
+        spring(
+            stiffness = Spring.StiffnessMediumLow,
+            visibilityThreshold = Offset.VisibilityThreshold
+        )
+    ),
+    maxScrollPerFrame: Dp = 30.dp
 ): ReorderableLazyListState {
     val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
     return remember(lazyListState) {
         ReorderableLazyListState(
             coroutineScope = coroutineScope,
@@ -668,7 +727,8 @@ fun rememberReorderableLazyListState(
             onDragEnd = onDragEnd,
             movable = movable,
             onMove = onMove,
-            dragCancelAnimation = dragCancelAnimation
+            dragCancelAnimation = dragCancelAnimation,
+            maxScrollPerFramePx = with(density) { maxScrollPerFrame.toPx() }
         )
     }
 }

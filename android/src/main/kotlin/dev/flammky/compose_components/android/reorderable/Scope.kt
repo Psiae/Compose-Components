@@ -6,8 +6,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.forEachGesture
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -25,15 +25,65 @@ interface ReorderableLazyListScope {
     fun item(
         // as of now key is a must, there will be non-key variant in the future (or maybe not)
         key: Any,
-        content: @Composable ReorderableLazyItemScope.() -> Unit
-    ) = items(1, { key }) { content() }
+        contentType: Any? = null,
+        content: @Composable ReorderableLazyItemScope.() -> Unit,
+    ) = items(1, { key }, { contentType }) { content() }
 
     fun items(
         count: Int,
         // as of now key is a must, there will be non-key variant in the future (or maybe not)
         key: (Int) -> Any,
+        contentType: (Int) -> Any? = { null },
         content: @Composable ReorderableLazyItemScope.(Int) -> Unit
     )
+}
+
+inline fun <T> ReorderableLazyListScope.items(
+    items: List<T>,
+    noinline key: ((item: T) -> Any),
+    noinline contentType: (item: T) -> Any? = { null },
+    crossinline itemContent: @Composable ReorderableLazyItemScope.(item: T) -> Unit
+) = items(
+    count = items.size,
+    key = { index: Int -> key(items[index]) },
+    contentType = { index: Int -> contentType(items[index]) }
+) {
+    itemContent(items[it])
+}
+
+inline fun <T> ReorderableLazyListScope.items(
+    items: List<T>,
+    noinline key: ((item: T) -> Any),
+    crossinline itemContent: @Composable ReorderableLazyItemScope.(item: T) -> Unit
+) = items(
+    count = items.size,
+    key = { index: Int -> key(items[index]) },
+) {
+    itemContent(items[it])
+}
+
+inline fun <T> ReorderableLazyListScope.itemsIndexed(
+    items: List<T>,
+    noinline key: ((index: Int, item: T) -> Any),
+    crossinline contentType: (index: Int, item: T) -> Any? = { _, _ -> null },
+    crossinline itemContent: @Composable ReorderableLazyItemScope.(index: Int, item: T) -> Unit
+) = items(
+    count = items.size,
+    key = { index: Int -> key(index, items[index]) },
+    contentType = { index -> contentType(index, items[index]) }
+) {
+    itemContent(it, items[it])
+}
+
+inline fun <T> ReorderableLazyListScope.itemsIndexed(
+    items: List<T>,
+    noinline key: ((index: Int, item: T) -> Any),
+    crossinline itemContent: @Composable ReorderableLazyItemScope.(index: Int, item: T) -> Unit
+) = items(
+    count = items.size,
+    key = { index: Int -> key(index, items[index]) },
+) {
+    itemContent(it, items[it])
 }
 
 internal interface InternalReorderableLazyListScope : ReorderableLazyListScope {
@@ -92,6 +142,7 @@ interface ReorderableLazyItemScope : LazyItemScope {
         val key: Any
         val indexInParent: Int
         val indexInBatch: Int
+        val indexInMask: Int
     }
 }
 
@@ -115,8 +166,9 @@ internal fun LazyItemScope.rememberInternalReorderableLazyItemScope(
             else if (composition.state.isHorizontalScroll)
                 Orientation.Horizontal
             else exhaustedStateException(),
-            positionInParent = ItemPosition(compositionItem.indexInParent, compositionItem.key),
+            positionInBase = ItemPosition(compositionItem.indexInParent, compositionItem.key),
             positionInBatch = ItemPosition(compositionItem.indexInInterval, compositionItem.key),
+            positionInMask = ItemPosition(composition.indexOfKey(compositionItem.key), compositionItem.key),
             currentDraggingItemDelta = composition.state::draggingItemDelta,
             currentDraggingItemPositionInParent = composition.state::draggingItemPosition,
             currentCancellingItemDelta = composition.state::cancellingItemDelta,
@@ -127,7 +179,7 @@ internal fun LazyItemScope.rememberInternalReorderableLazyItemScope(
                     "onReorderInput trySend $pid $offset)"
                 )
                 composition.state.childReorderStartChannel
-                    .trySend(ReorderDragStart(pid, offset, compositionItem.indexInParent, compositionItem.key))
+                    .trySend(ReorderDragStart(pid, composition, offset, compositionItem.indexInParent, compositionItem.key))
             },
             content = compositionItem.content
         )
@@ -149,15 +201,17 @@ internal class RealReorderableLazyListScope(
 
     override fun item(
         key: Any,
+        contentType: Any?,
         content: @Composable ReorderableLazyItemScope.() -> Unit
     ) {
         if (locked) return
-        items(1, { key }) { content() }
+        super.item(key, contentType, content)
     }
 
     override fun items(
         count: Int,
         key: (Int) -> Any,
+        contentType: (Int) -> Any?,
         content: @Composable ReorderableLazyItemScope.(Int) -> Unit
     ) {
         if (locked) return
@@ -165,7 +219,7 @@ internal class RealReorderableLazyListScope(
         val intervalStartIndexInParent = itemsLastIndex
         itemsLastIndex += count
         val interval = ReorderableLazyInterval(
-            startIndex = intervalIndex,
+            intervalIndex = intervalIndex,
             itemStartIndex = intervalStartIndexInParent,
             items = mutableListOf<ReorderableLazyIntervalItem>()
                 .apply {
@@ -203,106 +257,124 @@ internal class RealReorderableLazyListScope(
     }
 }
 
-/*internal class MaskedReorderableLazyListScope(
-    private val base: InternalReorderableLazyListScope
+internal class MaskedReorderableLazyListScope(
+    private val base: InternalReorderableLazyListScope,
+    private val maskedIndexMapping: Map<Int, Int> = mapOf(),
+    private val actualToMaskedIndexMapping: Map<Int, Int> = mapOf()
 ) : InternalReorderableLazyListScope {
-    private var locked: Boolean = false
-    private val indexToKeyMapping = mutableMapOf<Int, Any>()
-    private val indexToItemMapping = mutableMapOf<Int, ReorderableLazyIntervalItem>()
-    private val keyToIndexMapping = mutableMapOf<Any, Int>()
-    private val _intervals = mutableListOf<ReorderableLazyInterval>()
-    private var itemsLastIndex = 0
-
-    override val intervals: List<ReorderableLazyInterval> = _intervals
-
-    override val state: ReorderableLazyListState
-        get() = base.state
-
-    override val applier: ReorderableLazyListApplier
-        get() = base.applier
 
     override fun item(
         key: Any,
+        contentType: Any?,
         content: @Composable ReorderableLazyItemScope.() -> Unit
     ) {
-        if (locked) return
-        items(1, { key }) { content() }
+        base.item(key, contentType, content)
     }
 
     override fun items(
         count: Int,
         key: (Int) -> Any,
+        contentType: (Int) -> Any?,
         content: @Composable ReorderableLazyItemScope.(Int) -> Unit
     ) {
-        if (locked) return
-        val intervalIndex = intervals.size
-        val intervalStartIndexInParent = itemsLastIndex
-        itemsLastIndex += count
-        val interval = ReorderableLazyInterval(
-            startIndex = intervalIndex,
-            itemStartIndex = intervalStartIndexInParent,
-            items = mutableListOf<ReorderableLazyIntervalItem>()
-                .apply {
-                    repeat(count) { i ->
-                        val iKey = key(i)
-                        val item = ReorderableLazyIntervalItem(
-                            indexInInterval = i,
-                            indexInParent = intervalStartIndexInParent + i,
-                            key = iKey,
-                            type = null,
-                            content = content
-                        )
-                        indexToKeyMapping[intervalStartIndexInParent + i] = iKey
-                        indexToItemMapping[intervalStartIndexInParent + i] = item
-                        keyToIndexMapping[iKey] = intervalStartIndexInParent + i
-                        add(item)
-                    }
-                }
-        )
-        _intervals.add(interval)
-        repeat(count) { i ->
-            val iKey = key(i)
-            indexToKeyMapping[intervalStartIndexInParent + i] = iKey
-            keyToIndexMapping[iKey] = intervalStartIndexInParent + i
-        }
+        base.items(count, key, contentType, content)
     }
 
-    override fun indexOfKey(key: Any): Int = keyToIndexMapping.getOrElse(key) { -1 }
-    override fun itemOfIndex(index: Int): ReorderableLazyIntervalItem? = indexToItemMapping.getOrElse(index) { null }
+    override val state: ReorderableLazyListState
+        get() = base.state
+
+    override val intervals: List<ReorderableLazyInterval>
+        get() = base.intervals
+
+    override fun indexOfKey(key: Any): Int {
+        val inBase = base.indexOfKey(key)
+        return actualToMaskedIndexMapping[inBase] ?: inBase
+    }
+
+    override fun itemOfIndex(index: Int): ReorderableLazyIntervalItem? {
+        return base.itemOfIndex(maskedIndexMapping[index] ?: index)
+    }
+
     override fun isAppliedContentEqual(other: InternalReorderableLazyListScope): Boolean {
-        return (_intervals == other.intervals)
-    }
-    override fun onContentApplied() {
-        locked = true
+        return other.intervals == base.intervals
     }
 
-    override fun applyToLayout(
-        scope: LazyListScope,
-        latestComposition: @SnapshotRead () -> InternalReorderableLazyListScope?
-    ) {
-        intervals.fastForEach { interval ->
-            scope.items(
-                count = interval.items.size,
-                key = { i -> interval.items[i].key },
-            ) { i ->
-                val composition = latestComposition()
-                    ?: return@items
-                rememberInternalReorderableLazyItemScope(
-                    composition = composition,
-                    displayIndex = i
-                ).run {
-                    ComposeContent()
-                }
+    override fun onContentApplied() {
+        base.onContentApplied()
+    }
+
+    private fun move(from: Int, to: Int): Map<Int, Int> {
+        val actualFromIndex = maskedIndexMapping[from] ?: from
+        val actualToIndex = maskedIndexMapping[to] ?: to
+        if (actualFromIndex == actualToIndex) {
+            return maskedIndexMapping
+        }
+        val map = maskedIndexMapping.toMutableMap()
+        map[from] = actualToIndex
+        if (from < to) {
+            for (i in from until to) {
+                val current = map[i + 1]
+                val next = map[i + 1] ?: i + 1
+                if (current == next) map.remove(current) else map[i] = next
+            }
+        } else {
+            for (i in from downTo to + 1) {
+                val current = map[i - 1]
+                val prev = map[i - 1] ?: i - 1
+                if (current == prev) map.remove(current) else map[i] = prev
             }
         }
+        map[to] = actualFromIndex
+        if (map.size == 1) {
+            val firstEntry = map.entries.first()
+            if (firstEntry.key == firstEntry.value) map.remove(firstEntry.key)
+            return map
+        }
+        return map
     }
-}*/
+
+    fun onMove(
+        from: ItemPosition,
+        to: ItemPosition
+    ): MaskedReorderableLazyListScope {
+        val result =
+            if (from.index == to.index) {
+                // should not happen I think
+                this
+            } else {
+                val move = move(from.index, to.index)
+                val toActual = if (move === maskedIndexMapping) {
+                    actualToMaskedIndexMapping
+                } else {
+                    mutableMapOf<Int, Int>()
+                        .apply {
+                            move.entries.forEach { put(it.value, it.key) }
+                        }
+                }
+                MaskedReorderableLazyListScope(
+                    base,
+                    move(from.index, to.index),
+                    toActual
+                )
+            }
+       return result.also {
+           Log.d("Reorderable_DEBUG",
+               """
+                   MASK onMove(from=$from to=$to), 
+                   before=$maskedIndexMapping
+                   result=${it.maskedIndexMapping}
+               """.trimIndent()
+           )
+       }
+    }
+}
 
 internal class RealReorderableLazyItemScope(
     private val base: LazyItemScope,
     private val parentOrientation: Orientation,
-    private val positionInParent: ItemPosition,
+    private val positionInBase: ItemPosition,
     private val positionInBatch: ItemPosition,
+    private val positionInMask: ItemPosition,
     private val currentDraggingItemPositionInParent: @SnapshotRead () -> ItemPosition?,
     private val currentDraggingItemDelta: @SnapshotRead () -> Offset,
     private val currentCancellingItemPositionInParent: @SnapshotRead () -> ItemPosition?,
@@ -319,9 +391,10 @@ internal class RealReorderableLazyItemScope(
         override val cancelling: Boolean by derivedStateOf(policy = structuralEqualityPolicy()) {
             currentCancellingItemPositionInParent()?.takeIf { it.key == key } != null
         }
-        override val key: Any = positionInParent.key
-        override val indexInParent: Int = positionInParent.index
+        override val key: Any = positionInBase.key
+        override val indexInParent: Int = positionInBase.index
         override val indexInBatch: Int = positionInBatch.index
+        override val indexInMask: Int = positionInMask.index
     }
 
     @ExperimentalFoundationApi
@@ -329,7 +402,6 @@ internal class RealReorderableLazyItemScope(
         return with(base) {
             then(animateItemPlacement(animationSpec))
         }
-
     }
 
     override fun Modifier.fillParentMaxHeight(fraction: Float): Modifier {
@@ -340,7 +412,7 @@ internal class RealReorderableLazyItemScope(
 
     override fun Modifier.fillParentMaxSize(fraction: Float): Modifier {
         return with(base) {
-            then(fillMaxSize(fraction))
+            then(fillParentMaxSize(fraction))
         }
     }
 
@@ -452,11 +524,11 @@ internal class RealReorderableLazyItemScope(
     }
 
     @Composable
-    override fun ComposeContent() = content(positionInParent.index)
+    override fun ComposeContent() = content(positionInBase.index)
 }
 
 internal class ReorderableLazyInterval(
-    val startIndex: Int,
+    val intervalIndex: Int,
     val itemStartIndex: Int,
     val items: List<ReorderableLazyIntervalItem>
 ) {

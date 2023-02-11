@@ -23,6 +23,7 @@ class ReorderableLazyListState internal constructor(
     val lazyListState: LazyListState,
     private val onDragStart: ((item: ItemPosition) -> Boolean)?,
     // should provide `cancelled` reason
+    // should we provide a `handle` as an option to persist the mask ?
     private val onDragEnd: ((cancelled: Boolean, from: ItemPosition, to: ItemPosition) -> Unit)?,
     // should we handle the listing ?
     private val movable: ((from: ItemPosition, to: ItemPosition) -> Boolean)?,
@@ -36,6 +37,7 @@ class ReorderableLazyListState internal constructor(
     private var _draggingId: Long? = null
     private var _draggingItemStartSnapshot by mutableStateOf<LazyListItemInfo?>(null)
     private var _draggingItemLatestSnapshot by mutableStateOf<LazyListItemInfo?>(null)
+    private var _draggingLatestScope by mutableStateOf<InternalReorderableLazyListScope?>(null)
     private var _expectDraggingItemCurrentIndex by mutableStateOf<Int?>(null)
     private var _draggingItemStartDownOffset = Offset.Zero
     private var _draggingItemStartDraggingOffset = Offset.Zero
@@ -305,6 +307,7 @@ class ReorderableLazyListState internal constructor(
      */
     internal override fun onStartDrag(
         id: Long,
+        startComposition: InternalReorderableLazyListScope,
         startX: Float,
         startY: Float,
         startSlopX: Float,
@@ -334,11 +337,12 @@ class ReorderableLazyListState internal constructor(
             ?.takeIf { itemInfo ->
                 itemInfo.key == expectKey &&
                 itemInfo.index == expectIndex &&
-                _applier.onStartReorder(ItemPosition(itemInfo.index, itemInfo.key)) &&
+                _applier.onStartReorder(startComposition, ItemPosition(itemInfo.index, itemInfo.key)) &&
                 onDragStart?.invoke(ItemPosition(itemInfo.itemIndex, itemInfo.itemKey)) != false
             }
             ?.let { itemInfo ->
                 _draggingId = id
+                _draggingLatestScope = startComposition
                 _draggingItemStartSnapshot = itemInfo
                 _expectDraggingItemCurrentIndex = itemInfo.index
                 _draggingItemStartDraggingOffset = Offset(x, y)
@@ -522,6 +526,8 @@ class ReorderableLazyListState internal constructor(
             )
         }
         _applier.onEndReorder(
+            _draggingLatestScope!!,
+            cancelled,
             ItemPosition(startSnap.index, startSnap.key),
             ItemPosition(endIndex, startSnap.key)
         )
@@ -621,7 +627,7 @@ class ReorderableLazyListState internal constructor(
             if (!onMove(fromPosition, toPosition)) {
                 return false
             }
-            if (!_applier.onMove(fromPosition, toPosition)) {
+            if (!_applier.onMove(_draggingLatestScope!!, fromPosition, toPosition)) {
                 return false
             }
             _expectDraggingItemCurrentIndex = target.index

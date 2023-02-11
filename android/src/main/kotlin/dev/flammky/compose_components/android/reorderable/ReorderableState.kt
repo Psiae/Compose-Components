@@ -202,6 +202,7 @@ abstract class ReorderableState <ItemInfo> internal constructor() {
      */
     internal abstract fun onStartDrag(
         id: Long,
+        startComposition: InternalReorderableLazyListScope,
         startX: Float,
         startY: Float,
         startSlopX: Float,

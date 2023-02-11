@@ -20,10 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.flammky.compose_components.R
-import dev.flammky.compose_components.android.reorderable.ItemPosition
-import dev.flammky.compose_components.android.reorderable.ReorderableLazyColumn
-import dev.flammky.compose_components.android.reorderable.ReorderableLazyItemScope
-import dev.flammky.compose_components.android.reorderable.rememberReorderableLazyListState
+import dev.flammky.compose_components.android.reorderable.*
 import dev.flammky.compose_components.core.NoInline
 import dev.flammky.compose_components.presentation.theme.Theme
 import dev.flammky.compose_components.presentation.theme.backgroundColorAsState
@@ -71,6 +68,7 @@ private fun OrderingTestUsage(
                     true
                 },
                 onDragEnd = { cancelled, _, _ ->
+                    Log.d("Reorderable_DEBUG_Case", "onDragEnd($cancelled)")
                     if (!cancelled) {
                         viewModel.commitMoveQueueItem()
                     } else {
@@ -106,18 +104,17 @@ private fun OrderingTestUsage(
                 bottom = navigationBarHeight
             ),
         ) scope@ {
-            // TODO: handle list masking in the library instead
-            val listForComposition = viewModel.maskedQueueState.value
-            items(
-                count = listForComposition.tracks.size,
-                key = { i ->
+            val compositionQueue = viewModel.actualQueueState.value
+            itemsIndexed(
+                items = compositionQueue.tracks,
+                key = { _, item ->
                     QueueItemPositionKey(
-                        listForComposition.queueID,
-                        listForComposition.tracks[i].itemID
+                        run { check(item.queueID == compositionQueue.queueID) ; item.queueID },
+                        item.itemID
                     )
                 }
-            ) { i ->
-                TestTaskItemLayout(listForComposition.tracks[i])
+            ) { _, item ->
+                TestTaskItemLayout(item)
             }
             // Should this return the recomposition info?
         }
@@ -167,7 +164,7 @@ private fun ReorderableLazyItemScope.TestTaskItemLayout(
                 Text(
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
-                    text = item.itemID.toString() + " [${info.indexInParent}] ",
+                    text = item.itemID.toString() + " [${info.indexInMask}] ",
                     color = Theme.backgroundContentColorAsState().value
                 )
             }
@@ -180,6 +177,10 @@ private fun ReorderableLazyItemScope.TestTaskItemLayout(
         )
     }
 }
+
+internal data class QueueItemPositionLayoutType(
+    val unit: Unit = Unit
+)
 
 
 internal data class QueueItemPositionKey(

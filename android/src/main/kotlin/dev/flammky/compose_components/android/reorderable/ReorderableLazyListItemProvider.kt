@@ -9,18 +9,29 @@ internal class ReorderableLazyListItemProvider(
     private val baseContentState: State<@SnapshotReader ReorderableLazyListScope.() -> Unit>
 ) {
 
+    private var overrideScope by mutableStateOf<MaskedReorderableLazyListScope?>(null)
+
     private val baseScope by derivedStateOf {
+        // consider possibility of rebasing
+        overrideScope = null
         RealReorderableLazyListScope(state).apply(baseContentState.value)
     }
 
-    fun provideLayout(lazyListScope: LazyListScope) {
-        baseScope.intervals.forEach { interval ->
+    private val maskedScope by derivedStateOf {
+        val over = overrideScope
+        val base = baseScope
+        over ?: base
+    }
+
+    fun provideToLayout(lazyListScope: LazyListScope) {
+        val provideScope = maskedScope
+        provideScope.intervals.forEach { interval ->
             lazyListScope.items(
                 interval.items.size,
-                { i -> interval.items[i].key },
-                { i -> interval.items[i].type },
+                { i -> provideScope.itemOfIndex(interval.itemStartIndex + i)!!.key },
+                { i -> provideScope.itemOfIndex(interval.itemStartIndex + i)!!.type },
             ) { i ->
-                val composition = baseScope
+                val composition = maskedScope
                 rememberInternalReorderableLazyItemScope(
                     composition = composition,
                     displayIndex = i
@@ -31,7 +42,42 @@ internal class ReorderableLazyListItemProvider(
         }
     }
 
-    fun indexOfKey(key: Any): Int = baseScope.indexOfKey(key)
+    fun indexOfKey(key: Any): Int = maskedScope.indexOfKey(key)
+
+    fun onStartReorder(
+        composition: InternalReorderableLazyListScope,
+        from: ItemPosition
+    ): Boolean {
+        val currentBase = baseScope
+        if (composition != currentBase) {
+            return false
+        }
+        overrideScope = MaskedReorderableLazyListScope(currentBase)
+        return true
+    }
+
+    fun onMove(
+        composition: InternalReorderableLazyListScope,
+        from: ItemPosition,
+        new: ItemPosition
+    ): Boolean {
+        val overrideScope = this.overrideScope
+        if (overrideScope == null || composition != baseScope) {
+            return false
+        }
+        this.overrideScope = overrideScope.onMove(from, new)
+        return true
+    }
+
+    fun onEndReorder(
+        composition: InternalReorderableLazyListScope,
+        cancelled: Boolean,
+        from: ItemPosition,
+        to: ItemPosition
+    ) {
+        if (this.baseScope != composition) return
+        if (cancelled || from == to) this.overrideScope = null
+    }
 }
 
 @Composable

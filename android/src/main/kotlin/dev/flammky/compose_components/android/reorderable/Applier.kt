@@ -3,7 +3,6 @@ package dev.flammky.compose_components.android.reorderable
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.forEachGesture
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,7 +12,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.util.fastFirstOrNull
 import dev.flammky.compose_components.core.SnapshotRead
-import dev.flammky.compose_components.core.SnapshotReader
 import kotlinx.coroutines.CancellationException
 
 internal interface ReorderableLazyListApplier {
@@ -24,33 +22,13 @@ internal interface ReorderableLazyListApplier {
         lazyListScope: LazyListScope,
         itemProvider: ReorderableLazyListItemProvider
     )
-
-    fun onStartReorder(from: ItemPosition): Boolean
-    fun onMove(from: ItemPosition, new: ItemPosition): Boolean
-    fun onEndReorder(from: ItemPosition, to: ItemPosition)
 }
-
-/*@Composable
-internal fun rememberReorderableLazyListApplier(
-    state: ReorderableLazyListState
-): ReorderableLazyListApplier {
-    val applier = remember(state) {
-        RealReorderableLazyListApplier(state).apply { acquireState() }
-    }
-    DisposableEffect(
-        key1 = applier,
-        effect = {
-            onDispose { applier.releaseState() }
-        }
-    )
-    return applier
-}*/
 
 internal class RealReorderableLazyListApplier(
     private val state: ReorderableLazyListState
 ) : ReorderableLazyListApplier {
 
-    private var _currentComposition by mutableStateOf<ReorderableLazyListItemProvider?>(null)
+    private var _currentItemProvider by mutableStateOf<ReorderableLazyListItemProvider?>(null)
     
     private val pointerInputFilterModifier: Modifier = Modifier.pointerInput(Unit) {
         // for each possible gesture, install child drag listener
@@ -68,6 +46,7 @@ internal class RealReorderableLazyListApplier(
                             // check if the state allow the drag
                             state.onStartDrag(
                                 pointer.id.value,
+                                dragStart.composition,
                                 pointer.position.x - slop.x,
                                 pointer.position.y - slop.y,
                                 slop.x,
@@ -127,21 +106,35 @@ internal class RealReorderableLazyListApplier(
         lazyListScope: LazyListScope,
         itemProvider: ReorderableLazyListItemProvider
     ) {
-        itemProvider.provideLayout(lazyListScope)
+        _currentItemProvider = itemProvider.apply {
+            provideToLayout(lazyListScope)
+        }
     }
 
-    override fun onStartReorder(from: ItemPosition): Boolean {
-        return true
+    fun onStartReorder(
+        composition: InternalReorderableLazyListScope,
+        from: ItemPosition
+    ): Boolean {
+        return _currentItemProvider?.onStartReorder(composition, from) ?: return false
     }
 
-    override fun onMove(from: ItemPosition, new: ItemPosition): Boolean {
-        return true
+    fun onMove(
+        composition: InternalReorderableLazyListScope,
+        from: ItemPosition,
+        new: ItemPosition
+    ): Boolean {
+        return _currentItemProvider?.onMove(composition, from, new) ?: return false
     }
 
-    override fun onEndReorder(from: ItemPosition, to: ItemPosition) {
-
+    fun onEndReorder(
+        composition: InternalReorderableLazyListScope,
+        cancelled: Boolean,
+        from: ItemPosition,
+        to: ItemPosition
+    ) {
+        _currentItemProvider?.onEndReorder(composition, cancelled, from, to)
     }
 
     @SnapshotRead
-    fun indexOfKey(key: Any): Int = _currentComposition?.indexOfKey(key) ?: -1
+    fun indexOfKey(key: Any): Int = _currentItemProvider?.indexOfKey(key) ?: -1
 }
